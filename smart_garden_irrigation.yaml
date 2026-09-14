@@ -1,12 +1,11 @@
 blueprint:
-  name: Smart Garden Irrigation V2 - 4 Zone BOM Weather
+  name: Smart Garden Irrigation - 4 Zone BOM Weather
   description: >
     Four-zone smart irrigation blueprint using soil-moisture deficit,
     BOM hourly weather forecasts, temperature, humidity, seasonal adjustment,
     rain-aware watering, cycle-and-soak, optional pump/tank protection,
     sequential zones, and detailed persistent logging.
   domain: automation
-  min_version: "2024.6.0"
 
   input:
     schedule:
