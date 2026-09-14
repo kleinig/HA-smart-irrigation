@@ -11,6 +11,7 @@ blueprint:
     schedule:
       name: Schedule
       icon: mdi:clock-outline
+      collapsed: true
       input:
         schedule_mode:
           name: Start mode
@@ -46,7 +47,7 @@ blueprint:
         minimum_interval_hours:
           name: Minimum interval
           description: Prevent a new scheduled cycle until this many hours have passed.
-          default: 24
+          default: 23
           selector:
             number:
               min: 0
@@ -58,6 +59,7 @@ blueprint:
     weather:
       name: Weather
       icon: mdi:weather-partly-cloudy
+      collapsed: true
       input:
         weather_entity:
           name: Weather Entity
@@ -205,6 +207,7 @@ blueprint:
     global:
       name: Global irrigation settings
       icon: mdi:sprinkler
+      collapsed: true
       input:
         target_moisture:
           name: Target soil moisture
@@ -300,6 +303,7 @@ blueprint:
     compensation:
       name: Environmental compensation
       icon: mdi:thermometer-water
+      collapsed: true
       input:
         enable_environmental_compensation:
           name: Enable environmental compensation
@@ -560,6 +564,7 @@ blueprint:
     zones:
       name: Zones
       icon: mdi:sprinkler-variant
+      collapsed: true
       input:
         zone_1_enabled:
           name: Zone 1 enabled
