@@ -12,30 +12,37 @@ blueprint:
       name: Enable environmental compensation
       description: Apply temperature, humidity, wind, and seasonal adjustments to calculated watering duration.
       default: true
-      selector:
-        boolean:
+
+
+    # Environmental compensation
 
     enable_temperature_compensation:
       name: Temperature compensation
       default: true
-      selector:
-        boolean:
+
 
     enable_humidity_compensation:
       name: Humidity compensation
       default: true
-      selector:
-        boolean:
+
 
     enable_wind_compensation:
       name: Wind compensation
       default: true
-      selector:
-        boolean:
+
 
     enable_seasonal_compensation:
       name: Seasonal compensation
       default: true
+
+      selector:
+        boolean:
+      selector:
+        boolean:
+      selector:
+        boolean:
+      selector:
+        boolean:
       selector:
         boolean:
 
