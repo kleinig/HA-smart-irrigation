@@ -1,5 +1,5 @@
 blueprint:
-  name: Smart Garden Irrigation - 4 Zone BOM Weather
+  name: Smart Garden Irrigation
   description: >
     Four-zone smart irrigation blueprint using soil-moisture deficit,
     BOM hourly weather forecasts, temperature, humidity, seasonal adjustment,
@@ -8,77 +8,6 @@ blueprint:
   domain: automation
 
   input:
-    enable_environmental_compensation:
-      name: Enable environmental compensation
-      description: Apply temperature, humidity, wind, and seasonal adjustments to calculated watering duration.
-      default: true
-      selector:
-        boolean:
-
-    enable_temperature_compensation:
-      name: Temperature compensation
-      default: true
-      selector:
-        boolean:
-
-    enable_humidity_compensation:
-      name: Humidity compensation
-      default: true
-      selector:
-        boolean:
-
-    enable_wind_compensation:
-      name: Wind compensation
-      default: true
-      selector:
-        boolean:
-
-    enable_seasonal_compensation:
-      name: Seasonal compensation
-      default: true
-      selector:
-        boolean:
-
-    wind_light_multiplier:
-      name: Light wind multiplier
-      default: 1.0
-      selector:
-        number:
-          min: 0.5
-          max: 2
-          step: 0.05
-          mode: box
-
-    wind_moderate_multiplier:
-      name: Moderate wind multiplier
-      default: 1.05
-      selector:
-        number:
-          min: 0.5
-          max: 2
-          step: 0.05
-          mode: box
-
-    wind_strong_multiplier:
-      name: Strong wind multiplier
-      default: 1.15
-      selector:
-        number:
-          min: 0.5
-          max: 2
-          step: 0.05
-          mode: box
-
-    wind_very_strong_multiplier:
-      name: Very strong wind multiplier
-      default: 1.3
-      selector:
-        number:
-          min: 0.5
-          max: 2
-          step: 0.05
-          mode: box
-
     schedule:
       name: Schedule
       icon: mdi:clock-outline
@@ -131,18 +60,43 @@ blueprint:
       icon: mdi:weather-partly-cloudy
       input:
         weather_entity:
-          name: BOM hourly weather entity
-          description: >
-            Select the BOM hourly weather entity. The blueprint retrieves its
-            hourly forecast using weather.get_forecasts.
+          name: Weather Entity
+          description: Select the weather entity used for forecast decisions.
           selector:
             entity:
               filter:
                 domain: weather
 
+        forecast_type:
+          name: Forecast type
+          description: >
+            Choose whether rain decisions use the daily forecast or the more
+            detailed hourly forecast. Daily is recommended; hourly is optional.
+          default: daily
+          selector:
+            select:
+              options:
+                - label: Daily
+                  value: daily
+                - label: Hourly (optional)
+                  value: hourly
+              mode: dropdown
+
+        forecast_days:
+          name: Daily forecast window
+          description: Number of upcoming forecast days used for the rain decision when Daily is selected.
+          default: 7
+          selector:
+            number:
+              min: 1
+              max: 14
+              step: 1
+              unit_of_measurement: d
+              mode: box
+
         forecast_hours:
-          name: Rain forecast window
-          description: Number of upcoming forecast hours used for the rain decision.
+          name: Hourly forecast window
+          description: Number of upcoming forecast hours used for the rain decision when Hourly is selected.
           default: 24
           selector:
             number:
@@ -347,6 +301,77 @@ blueprint:
       name: Environmental compensation
       icon: mdi:thermometer-water
       input:
+        enable_environmental_compensation:
+          name: Enable environmental compensation
+          description: Apply temperature, humidity, wind, and seasonal adjustments to calculated watering duration.
+          default: true
+          selector:
+            boolean:
+
+        enable_temperature_compensation:
+          name: Temperature compensation
+          default: true
+          selector:
+            boolean:
+
+        enable_humidity_compensation:
+          name: Humidity compensation
+          default: true
+          selector:
+            boolean:
+
+        enable_wind_compensation:
+          name: Wind compensation
+          default: true
+          selector:
+            boolean:
+
+        enable_seasonal_compensation:
+          name: Seasonal compensation
+          default: true
+          selector:
+            boolean:
+
+        wind_light_multiplier:
+          name: Light wind multiplier
+          default: 1.0
+          selector:
+            number:
+              min: 0.5
+              max: 2
+              step: 0.05
+              mode: box
+
+        wind_moderate_multiplier:
+          name: Moderate wind multiplier
+          default: 1.05
+          selector:
+            number:
+              min: 0.5
+              max: 2
+              step: 0.05
+              mode: box
+
+        wind_strong_multiplier:
+          name: Strong wind multiplier
+          default: 1.15
+          selector:
+            number:
+              min: 0.5
+              max: 2
+              step: 0.05
+              mode: box
+
+        wind_very_strong_multiplier:
+          name: Very strong wind multiplier
+          default: 1.3
+          selector:
+            number:
+              min: 0.5
+              max: 2
+              step: 0.05
+              mode: box
+
         cold_multiplier:
           name: Cold multiplier (<15°C)
           default: 0.80
@@ -679,6 +704,8 @@ max_exceeded: silent
 
 variables:
   weather_entity: !input weather_entity
+  forecast_type: !input forecast_type
+  forecast_days: !input forecast_days
   schedule_mode: !input schedule_mode
   environmental_compensation: !input enable_environmental_compensation
   temperature_compensation: !input enable_temperature_compensation
@@ -774,14 +801,16 @@ actions:
     target:
       entity_id: !input weather_entity
     data:
-      type: hourly
+      type: "{{ forecast_type }}"
     response_variable: weather_response
 
   - variables:
-      hourly_forecast: >
+      forecast_data: >
         {{ weather_response.get(weather_entity, {}).get('forecast', []) }}
       forecast_window: >
-        {{ hourly_forecast[:forecast_hours | int(24)] }}
+        {{ forecast_data[:(forecast_hours if forecast_type == 'hourly' else forecast_days) | int] }}
+      forecast_window_label: >
+        {{ (forecast_hours | int(24)) ~ 'h' if forecast_type == 'hourly' else (forecast_days | int(7)) ~ 'd' }}
 
   - variables:
       forecast_rain_total: >
@@ -1019,7 +1048,7 @@ actions:
                     message: >
                       Watering skipped due to forecast rain.
                       Soil {{ moisture | round(1) }}%, target {{ target_moisture }}%.
-                      Forecast window {{ forecast_hours }}h:
+                      Forecast window {{ forecast_window_label }}:
                       {{ forecast_rain_total }} mm total,
                       max probability {{ forecast_max_probability }}%.
             - condition: template
@@ -1054,7 +1083,7 @@ actions:
                   Base {{ base_duration | round(1) }} min →
                   environmental {{ environmental_duration | round(1) }} min →
                   final {{ final_duration | round(1) }} min.
-                  Forecast {{ forecast_hours }}h:
+                  Forecast {{ forecast_window_label }}:
                   {{ forecast_rain_total }} mm,
                   max probability {{ forecast_max_probability }}%,
                   max amount {{ forecast_max_amount }} mm,
@@ -1124,6 +1153,6 @@ actions:
           title: Smart Irrigation - Complete
           message: >
             Irrigation cycle completed.
-            Forecast window: {{ forecast_hours }}h,
+            Forecast window: {{ forecast_window_label }},
             forecast rainfall: {{ forecast_rain_total }} mm,
             maximum rain probability: {{ forecast_max_probability }}%.
