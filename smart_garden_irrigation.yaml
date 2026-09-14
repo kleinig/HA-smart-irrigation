@@ -6,6 +6,79 @@ blueprint:
     rain-aware watering, cycle-and-soak, optional pump/tank protection,
     sequential zones, and detailed persistent logging.
   domain: automation
+
+  input:
+    enable_environmental_compensation:
+      name: Enable environmental compensation
+      description: Apply temperature, humidity, wind, and seasonal adjustments to calculated watering duration.
+      default: true
+      selector:
+        boolean:
+
+    enable_temperature_compensation:
+      name: Temperature compensation
+      default: true
+      selector:
+        boolean:
+
+    enable_humidity_compensation:
+      name: Humidity compensation
+      default: true
+      selector:
+        boolean:
+
+    enable_wind_compensation:
+      name: Wind compensation
+      default: true
+      selector:
+        boolean:
+
+    enable_seasonal_compensation:
+      name: Seasonal compensation
+      default: true
+      selector:
+        boolean:
+
+    wind_light_multiplier:
+      name: Light wind multiplier
+      default: 1.0
+      selector:
+        number:
+          min: 0.5
+          max: 2
+          step: 0.05
+          mode: box
+
+    wind_moderate_multiplier:
+      name: Moderate wind multiplier
+      default: 1.05
+      selector:
+        number:
+          min: 0.5
+          max: 2
+          step: 0.05
+          mode: box
+
+    wind_strong_multiplier:
+      name: Strong wind multiplier
+      default: 1.15
+      selector:
+        number:
+          min: 0.5
+          max: 2
+          step: 0.05
+          mode: box
+
+    wind_very_strong_multiplier:
+      name: Very strong wind multiplier
+      default: 1.3
+      selector:
+        number:
+          min: 0.5
+          max: 2
+          step: 0.05
+          mode: box
+
     schedule:
       name: Schedule
       icon: mdi:clock-outline
@@ -179,77 +252,6 @@ blueprint:
       name: Global irrigation settings
       icon: mdi:sprinkler
       input:
-        enable_environmental_compensation:
-          name: Enable environmental compensation
-          description: Apply temperature, humidity, wind, and seasonal adjustments to calculated watering duration.
-          default: true
-          selector:
-            boolean:
-    
-        enable_temperature_compensation:
-          name: Temperature compensation
-          default: true
-          selector:
-            boolean:
-    
-        enable_humidity_compensation:
-          name: Humidity compensation
-          default: true
-          selector:
-            boolean:
-    
-        enable_wind_compensation:
-          name: Wind compensation
-          default: true
-          selector:
-            boolean:
-    
-        enable_seasonal_compensation:
-          name: Seasonal compensation
-          default: true
-          selector:
-            boolean:
-    
-        wind_light_multiplier:
-          name: Light wind multiplier
-          default: 1.0
-          selector:
-            number:
-              min: 0.5
-              max: 2
-              step: 0.05
-              mode: box
-    
-        wind_moderate_multiplier:
-          name: Moderate wind multiplier
-          default: 1.05
-          selector:
-            number:
-              min: 0.5
-              max: 2
-              step: 0.05
-              mode: box
-    
-        wind_strong_multiplier:
-          name: Strong wind multiplier
-          default: 1.15
-          selector:
-            number:
-              min: 0.5
-              max: 2
-              step: 0.05
-              mode: box
-    
-        wind_very_strong_multiplier:
-          name: Very strong wind multiplier
-          default: 1.3
-          selector:
-            number:
-              min: 0.5
-              max: 2
-              step: 0.05
-              mode: box
-          
         target_moisture:
           name: Target soil moisture
           default: 40
