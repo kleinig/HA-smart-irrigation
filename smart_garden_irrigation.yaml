@@ -8,16 +8,111 @@ blueprint:
   domain: automation
 
   input:
+    enable_environmental_compensation:
+      name: Enable environmental compensation
+      description: Apply temperature, humidity, wind, and seasonal adjustments to calculated watering duration.
+      default: true
+      selector:
+        boolean:
+
+    enable_temperature_compensation:
+      name: Temperature compensation
+      default: true
+      selector:
+        boolean:
+
+    enable_humidity_compensation:
+      name: Humidity compensation
+      default: true
+      selector:
+        boolean:
+
+    enable_wind_compensation:
+      name: Wind compensation
+      default: true
+      selector:
+        boolean:
+
+    enable_seasonal_compensation:
+      name: Seasonal compensation
+      default: true
+      selector:
+        boolean:
+
+    wind_light_multiplier:
+      name: Light wind multiplier
+      default: 1.0
+      selector:
+        number:
+          min: 0.5
+          max: 2
+          step: 0.05
+          mode: box
+
+    wind_moderate_multiplier:
+      name: Moderate wind multiplier
+      default: 1.05
+      selector:
+        number:
+          min: 0.5
+          max: 2
+          step: 0.05
+          mode: box
+
+    wind_strong_multiplier:
+      name: Strong wind multiplier
+      default: 1.15
+      selector:
+        number:
+          min: 0.5
+          max: 2
+          step: 0.05
+          mode: box
+
+    wind_very_strong_multiplier:
+      name: Very strong wind multiplier
+      default: 1.3
+      selector:
+        number:
+          min: 0.5
+          max: 2
+          step: 0.05
+          mode: box
+
     schedule:
       name: Schedule
       icon: mdi:clock-outline
       input:
+        schedule_mode:
+          name: Start mode
+          description: Choose a fixed time, sunrise, or sunset.
+          default: fixed
+          selector:
+            select:
+              options:
+                - label: Fixed time
+                  value: fixed
+                - label: Sunrise
+                  value: sunrise
+                - label: Sunset
+                  value: sunset
+              mode: dropdown
+
         start_time:
-          name: Start time
-          description: Time at which the irrigation cycle should start.
+          name: Fixed start time
+          description: Used when Start mode is Fixed time.
           default: "21:00:00"
           selector:
             time:
+
+        sun_offset:
+          name: Sunrise/sunset offset
+          description: Offset before or after sunrise/sunset. Negative is before; positive is after.
+          default:
+            minutes: 0
+          selector:
+            duration:
+              enable_day: false
 
         minimum_interval_hours:
           name: Minimum interval
@@ -584,6 +679,16 @@ max_exceeded: silent
 
 variables:
   weather_entity: !input weather_entity
+  schedule_mode: !input schedule_mode
+  environmental_compensation: !input enable_environmental_compensation
+  temperature_compensation: !input enable_temperature_compensation
+  humidity_compensation: !input enable_humidity_compensation
+  wind_compensation: !input enable_wind_compensation
+  seasonal_compensation: !input enable_seasonal_compensation
+  wind_light_multiplier: !input wind_light_multiplier
+  wind_moderate_multiplier: !input wind_moderate_multiplier
+  wind_strong_multiplier: !input wind_strong_multiplier
+  wind_very_strong_multiplier: !input wind_very_strong_multiplier
   forecast_hours: !input forecast_hours
   rain_probability_threshold: !input rain_probability_threshold
   rain_amount_threshold: !input rain_amount_threshold
@@ -638,9 +743,23 @@ variables:
   notify_service: !input notify_service
   create_persistent_notifications: !input create_persistent_notifications
 
+trigger_variables:
+  _schedule_mode: !input schedule_mode
+
 triggers:
   - trigger: time
     at: !input start_time
+    enabled: "{{ _schedule_mode == 'fixed' }}"
+
+  - trigger: sun
+    event: sunrise
+    offset: !input sun_offset
+    enabled: "{{ _schedule_mode == 'sunrise' }}"
+
+  - trigger: sun
+    event: sunset
+    offset: !input sun_offset
+    enabled: "{{ _schedule_mode == 'sunset' }}"
 
 conditions:
   - condition: template
@@ -813,6 +932,8 @@ actions:
               {{ state_attr(weather_entity, 'temperature') | float(20) }}
             current_humidity: >
               {{ state_attr(weather_entity, 'humidity') | float(60) }}
+            current_wind_speed: >
+              {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
 
         - variables:
             temperature_multiplier: >
@@ -852,13 +973,25 @@ actions:
               {% else %}
                 {{ spring_multiplier }}
               {% endif %}
+            wind_multiplier: >
+              {% set w = current_wind_speed | float(0) %}
+              {% if w < 10 %}
+                {{ wind_light_multiplier }}
+              {% elif w < 20 %}
+                {{ wind_moderate_multiplier }}
+              {% elif w < 30 %}
+                {{ wind_strong_multiplier }}
+              {% else %}
+                {{ wind_very_strong_multiplier }}
+              {% endif %}
 
         - variables:
             environmental_duration: >
-              {{ base_duration
-                 * temperature_multiplier | float(1)
-                 * humidity_multiplier | float(1)
-                 * season_multiplier | float(1) }}
+              {% set t = temperature_multiplier | float(1) if temperature_compensation else 1 %}
+              {% set h = humidity_multiplier | float(1) if humidity_compensation else 1 %}
+              {% set w = wind_multiplier | float(1) if wind_compensation else 1 %}
+              {% set s = season_multiplier | float(1) if seasonal_compensation else 1 %}
+              {{ base_duration * t * h * w * s if environmental_compensation else base_duration }}
             rain_reduction_for_zone: >
               {% if critical %}
                 {{ [rain_reduction | float(0), critical_rain_max_reduction | float(50)] | min }}
