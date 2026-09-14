@@ -794,17 +794,24 @@ triggers:
     at: !input start_time
     enabled: "{{ _schedule_mode == 'fixed' }}"
 
-  - trigger: sun
-    event: sunrise
-    offset: "{{ sun_offset }}"
-    enabled: "{{ _schedule_mode == 'sunrise' }}"
-
-  - trigger: sun
-    event: sunset
-    offset: "{{ sun_offset }}"
-    enabled: "{{ _schedule_mode == 'sunset' }}"
+  # Home Assistant requires a literal HH:MM[:SS] value for a sun trigger's
+  # offset, so a slider cannot be templated directly into that field.
+  # Instead, check once per minute and calculate the selected offset from the
+  # sun integration. This preserves the slider while remaining saveable.
+  - trigger: time_pattern
+    minutes: "/1"
+    enabled: "{{ _schedule_mode in ['sunrise', 'sunset'] }}"
 
 conditions:
+  - condition: template
+    value_template: >-
+      {% if schedule_mode == 'fixed' %}
+        true
+      {% else %}
+        {% set event_ts = as_timestamp(state_attr('sun.sun', 'next_rising' if schedule_mode == 'sunrise' else 'next_setting')) %}
+        {% set target_ts = event_ts + (sun_offset_minutes | int(0) * 60) %}
+        {{ now().timestamp() >= target_ts and now().timestamp() < target_ts + 60 }}
+      {% endif %}
   - condition: template
     value_template: >
       {% set last = this.attributes.last_triggered %}
