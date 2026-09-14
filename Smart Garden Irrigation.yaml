@@ -1,0 +1,1433 @@
+blueprint:
+  name: Smart Garden Irrigation
+  description: >
+    Four-zone, soil-moisture-driven irrigation for Home Assistant. Watering
+    duration is calculated from moisture deficit and then compensated for
+    predicted rain, soil temperature, soil humidity, and Australian seasons.
+    Includes optional pump/tank protection, cycle-and-soak, configurable
+    start times, critical-dryness rain override, water-use estimation, and
+    detailed persistent logging.
+  domain: automation
+  source_url: https://www.home-assistant.io/docs/blueprint/
+  input:
+
+    global_settings:
+      name: Global settings
+      icon: mdi:watering-can
+      input:
+
+        start_mode:
+          name: Start mode
+          default: fixed
+          selector:
+            select:
+              options:
+                - label: Fixed time
+                  value: fixed
+                - label: Sunrise
+                  value: sunrise
+                - label: Sunset
+                  value: sunset
+                - label: Night (02:00)
+                  value: night
+
+        fixed_start:
+          name: Fixed start time
+          default: "06:00:00"
+          selector:
+            time: {}
+
+        sun_offset:
+          name: Sunrise/sunset offset
+          description: Positive values are later; negative values are earlier.
+          default: 0
+          selector:
+            number:
+              min: -180
+              max: 180
+              step: 1
+              unit_of_measurement: min
+              mode: slider
+
+        minimum_interval:
+          name: Minimum interval between scheduled cycles
+          description: >
+            Prevents a scheduled irrigation cycle from starting again too soon.
+            Set to 0 to disable this check.
+          default: 24
+          selector:
+            number:
+              min: 0
+              max: 168
+              step: 1
+              unit_of_measurement: h
+              mode: slider
+
+        log_actions:
+          name: Persistent irrigation logging
+          description: Create a persistent notification explaining watering decisions.
+          default: true
+          selector:
+            boolean: {}
+
+    rain_settings:
+      name: Rain settings
+      icon: mdi:weather-rainy
+      input:
+
+        rain_forecast:
+          name: Daily predicted rain sensor
+          description: >
+            Numeric sensor containing the predicted rainfall for the day in mm.
+          default: null
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+
+        rain_none_below:
+          name: No rain compensation below
+          default: 2
+          selector:
+            number:
+              min: 0
+              max: 50
+              step: 0.5
+              unit_of_measurement: mm
+              mode: slider
+
+        rain_low_below:
+          name: Low rain threshold
+          default: 5
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 0.5
+              unit_of_measurement: mm
+              mode: slider
+
+        rain_medium_below:
+          name: Medium rain threshold
+          default: 10
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 0.5
+              unit_of_measurement: mm
+              mode: slider
+
+        rain_high_below:
+          name: High rain threshold
+          default: 20
+          selector:
+            number:
+              min: 0
+              max: 150
+              step: 0.5
+              unit_of_measurement: mm
+              mode: slider
+
+        rain_low_reduction:
+          name: Low-rain duration reduction
+          default: 15
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        rain_medium_reduction:
+          name: Medium-rain duration reduction
+          default: 35
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        rain_high_reduction:
+          name: High-rain duration reduction
+          default: 65
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        critical_rain_reduction:
+          name: Maximum rain reduction when critically dry
+          description: >
+            A critically dry zone is never completely skipped because of
+            forecast rain. Instead this is the maximum rain reduction applied.
+          default: 50
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+    climate_settings:
+      name: Temperature, humidity and seasonal compensation
+      icon: mdi:thermometer-water
+      input:
+
+        temp_very_cool:
+          name: Very cool threshold
+          default: 15
+          selector:
+            number:
+              min: -10
+              max: 40
+              step: 0.5
+              unit_of_measurement: "°C"
+              mode: slider
+
+        temp_cool:
+          name: Cool threshold
+          default: 22
+          selector:
+            number:
+              min: -10
+              max: 45
+              step: 0.5
+              unit_of_measurement: "°C"
+              mode: slider
+
+        temp_warm:
+          name: Warm threshold
+          default: 28
+          selector:
+            number:
+              min: 0
+              max: 50
+              step: 0.5
+              unit_of_measurement: "°C"
+              mode: slider
+
+        temp_hot:
+          name: Hot threshold
+          default: 32
+          selector:
+            number:
+              min: 0
+              max: 55
+              step: 0.5
+              unit_of_measurement: "°C"
+              mode: slider
+
+        temp_extreme:
+          name: Extreme threshold
+          default: 35
+          selector:
+            number:
+              min: 0
+              max: 60
+              step: 0.5
+              unit_of_measurement: "°C"
+              mode: slider
+
+        temp_very_cool_adjustment:
+          name: Adjustment below very cool
+          default: -20
+          selector:
+            number:
+              min: -100
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        temp_cool_adjustment:
+          name: Adjustment below cool
+          default: -10
+          selector:
+            number:
+              min: -100
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        temp_warm_adjustment:
+          name: Adjustment at warm
+          default: 15
+          selector:
+            number:
+              min: -100
+              max: 200
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        temp_hot_adjustment:
+          name: Adjustment at hot
+          default: 30
+          selector:
+            number:
+              min: -100
+              max: 300
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        temp_extreme_adjustment:
+          name: Adjustment at extreme
+          default: 45
+          selector:
+            number:
+              min: -100
+              max: 300
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        humidity_high:
+          name: High humidity threshold
+          default: 80
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        humidity_low:
+          name: Low humidity threshold
+          default: 40
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        humidity_high_adjustment:
+          name: Adjustment at high humidity
+          default: -10
+          selector:
+            number:
+              min: -100
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        humidity_low_adjustment:
+          name: Adjustment at low humidity
+          default: 10
+          selector:
+            number:
+              min: -100
+              max: 200
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        summer_multiplier:
+          name: Summer multiplier
+          default: 1.15
+          selector:
+            number:
+              min: 0
+              max: 3
+              step: 0.05
+              mode: slider
+
+        autumn_multiplier:
+          name: Autumn multiplier
+          default: 1
+          selector:
+            number:
+              min: 0
+              max: 3
+              step: 0.05
+              mode: slider
+
+        winter_multiplier:
+          name: Winter multiplier
+          default: 0.70
+          selector:
+            number:
+              min: 0
+              max: 3
+              step: 0.05
+              mode: slider
+
+        spring_multiplier:
+          name: Spring multiplier
+          default: 1.05
+          selector:
+            number:
+              min: 0
+              max: 3
+              step: 0.05
+              mode: slider
+
+    water_system:
+      name: Water system
+      icon: mdi:water-pump
+      input:
+
+        pump:
+          name: Pump
+          description: Optional pump switch.
+          default: null
+          selector:
+            entity:
+              filter:
+                - domain: switch
+
+        pump_delay:
+          name: Pump startup delay
+          default: 5
+          selector:
+            number:
+              min: 0
+              max: 60
+              step: 1
+              unit_of_measurement: s
+              mode: slider
+
+        tank_level:
+          name: Tank/fill-level sensor
+          description: Optional numeric water-level sensor.
+          default: null
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+
+        minimum_tank_level:
+          name: Minimum tank level
+          default: 100
+          selector:
+            number:
+              min: 0
+              max: 100000
+              step: 1
+              mode: slider
+
+        water_rate:
+          name: Water flow rate
+          description: Optional total flow rate for estimated water-use logging.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 1000
+              step: 0.1
+              unit_of_measurement: L/min
+              mode: slider
+
+    zone_1:
+      name: Zone 1
+      icon: mdi:numeric-1-circle
+      input:
+
+        zone_1_enabled:
+          name: Zone 1 enabled
+          default: true
+          selector:
+            boolean: {}
+
+        zone_1_valve:
+          name: Zone 1 valve
+          selector:
+            entity:
+              filter:
+                - domain:
+                    - switch
+                    - valve
+
+        zone_1_moisture:
+          name: Zone 1 soil moisture
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+
+        zone_1_temperature:
+          name: Zone 1 soil temperature
+          default: null
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+
+        zone_1_humidity:
+          name: Zone 1 soil humidity
+          default: null
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+
+        zone_1_target:
+          name: Zone 1 target moisture
+          default: 40
+          selector:
+            number:
+              min: 1
+              max: 99
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        zone_1_threshold:
+          name: Zone 1 watering threshold
+          default: 35
+          selector:
+            number:
+              min: 1
+              max: 99
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        zone_1_critical:
+          name: Zone 1 critical dryness threshold
+          default: 20
+          selector:
+            number:
+              min: 1
+              max: 99
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        zone_1_min_duration:
+          name: Zone 1 minimum duration
+          default: 5
+          selector:
+            number:
+              min: 1
+              max: 120
+              step: 1
+              unit_of_measurement: min
+              mode: slider
+
+        zone_1_max_duration:
+          name: Zone 1 maximum duration
+          default: 30
+          selector:
+            number:
+              min: 1
+              max: 240
+              step: 1
+              unit_of_measurement: min
+              mode: slider
+
+        zone_1_minutes_per_percent:
+          name: Zone 1 minutes per moisture-deficit percent
+          default: 1
+          selector:
+            number:
+              min: 0
+              max: 10
+              step: 0.1
+              unit_of_measurement: min/%
+              mode: slider
+
+        zone_1_cycle_enabled:
+          name: Zone 1 cycle and soak
+          default: false
+          selector:
+            boolean: {}
+
+        zone_1_cycle_duration:
+          name: Zone 1 cycle duration
+          default: 5
+          selector:
+            number:
+              min: 1
+              max: 60
+              step: 1
+              unit_of_measurement: min
+              mode: slider
+
+        zone_1_soak_duration:
+          name: Zone 1 soak duration
+          default: 10
+          selector:
+            number:
+              min: 1
+              max: 120
+              step: 1
+              unit_of_measurement: min
+              mode: slider
+
+    zone_2:
+      name: Zone 2
+      icon: mdi:numeric-2-circle
+      input:
+
+        zone_2_enabled:
+          name: Zone 2 enabled
+          default: true
+          selector:
+            boolean: {}
+
+        zone_2_valve:
+          name: Zone 2 valve
+          selector:
+            entity:
+              filter:
+                - domain:
+                    - switch
+                    - valve
+
+        zone_2_moisture:
+          name: Zone 2 soil moisture
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+
+        zone_2_temperature:
+          name: Zone 2 soil temperature
+          default: null
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+
+        zone_2_humidity:
+          name: Zone 2 soil humidity
+          default: null
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+
+        zone_2_target:
+          name: Zone 2 target moisture
+          default: 40
+          selector:
+            number:
+              min: 1
+              max: 99
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        zone_2_threshold:
+          name: Zone 2 watering threshold
+          default: 35
+          selector:
+            number:
+              min: 1
+              max: 99
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        zone_2_critical:
+          name: Zone 2 critical dryness threshold
+          default: 20
+          selector:
+            number:
+              min: 1
+              max: 99
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        zone_2_min_duration:
+          name: Zone 2 minimum duration
+          default: 5
+          selector:
+            number:
+              min: 1
+              max: 120
+              step: 1
+              unit_of_measurement: min
+              mode: slider
+
+        zone_2_max_duration:
+          name: Zone 2 maximum duration
+          default: 30
+          selector:
+            number:
+              min: 1
+              max: 240
+              step: 1
+              unit_of_measurement: min
+              mode: slider
+
+        zone_2_minutes_per_percent:
+          name: Zone 2 minutes per moisture-deficit percent
+          default: 1
+          selector:
+            number:
+              min: 0
+              max: 10
+              step: 0.1
+              unit_of_measurement: min/%
+              mode: slider
+
+        zone_2_cycle_enabled:
+          name: Zone 2 cycle and soak
+          default: false
+          selector:
+            boolean: {}
+
+        zone_2_cycle_duration:
+          name: Zone 2 cycle duration
+          default: 5
+          selector:
+            number:
+              min: 1
+              max: 60
+              step: 1
+              unit_of_measurement: min
+              mode: slider
+
+        zone_2_soak_duration:
+          name: Zone 2 soak duration
+          default: 10
+          selector:
+            number:
+              min: 1
+              max: 120
+              step: 1
+              unit_of_measurement: min
+              mode: slider
+
+    zone_3:
+      name: Zone 3
+      icon: mdi:numeric-3-circle
+      input:
+
+        zone_3_enabled:
+          name: Zone 3 enabled
+          default: false
+          selector:
+            boolean: {}
+
+        zone_3_valve:
+          name: Zone 3 valve
+          default: null
+          selector:
+            entity:
+              filter:
+                - domain:
+                    - switch
+                    - valve
+
+        zone_3_moisture:
+          name: Zone 3 soil moisture
+          default: null
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+
+        zone_3_temperature:
+          name: Zone 3 soil temperature
+          default: null
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+
+        zone_3_humidity:
+          name: Zone 3 soil humidity
+          default: null
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+
+        zone_3_target:
+          name: Zone 3 target moisture
+          default: 40
+          selector:
+            number:
+              min: 1
+              max: 99
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        zone_3_threshold:
+          name: Zone 3 watering threshold
+          default: 35
+          selector:
+            number:
+              min: 1
+              max: 99
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        zone_3_critical:
+          name: Zone 3 critical dryness threshold
+          default: 20
+          selector:
+            number:
+              min: 1
+              max: 99
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        zone_3_min_duration:
+          name: Zone 3 minimum duration
+          default: 5
+          selector:
+            number:
+              min: 1
+              max: 120
+              step: 1
+              unit_of_measurement: min
+              mode: slider
+
+        zone_3_max_duration:
+          name: Zone 3 maximum duration
+          default: 30
+          selector:
+            number:
+              min: 1
+              max: 240
+              step: 1
+              unit_of_measurement: min
+              mode: slider
+
+        zone_3_minutes_per_percent:
+          name: Zone 3 minutes per moisture-deficit percent
+          default: 1
+          selector:
+            number:
+              min: 0
+              max: 10
+              step: 0.1
+              unit_of_measurement: min/%
+              mode: slider
+
+        zone_3_cycle_enabled:
+          name: Zone 3 cycle and soak
+          default: false
+          selector:
+            boolean: {}
+
+        zone_3_cycle_duration:
+          name: Zone 3 cycle duration
+          default: 5
+          selector:
+            number:
+              min: 1
+              max: 60
+              step: 1
+              unit_of_measurement: min
+              mode: slider
+
+        zone_3_soak_duration:
+          name: Zone 3 soak duration
+          default: 10
+          selector:
+            number:
+              min: 1
+              max: 120
+              step: 1
+              unit_of_measurement: min
+              mode: slider
+
+    zone_4:
+      name: Zone 4
+      icon: mdi:numeric-4-circle
+      input:
+
+        zone_4_enabled:
+          name: Zone 4 enabled
+          default: false
+          selector:
+            boolean: {}
+
+        zone_4_valve:
+          name: Zone 4 valve
+          default: null
+          selector:
+            entity:
+              filter:
+                - domain:
+                    - switch
+                    - valve
+
+        zone_4_moisture:
+          name: Zone 4 soil moisture
+          default: null
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+
+        zone_4_temperature:
+          name: Zone 4 soil temperature
+          default: null
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+
+        zone_4_humidity:
+          name: Zone 4 soil humidity
+          default: null
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+
+        zone_4_target:
+          name: Zone 4 target moisture
+          default: 40
+          selector:
+            number:
+              min: 1
+              max: 99
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        zone_4_threshold:
+          name: Zone 4 watering threshold
+          default: 35
+          selector:
+            number:
+              min: 1
+              max: 99
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        zone_4_critical:
+          name: Zone 4 critical dryness threshold
+          default: 20
+          selector:
+            number:
+              min: 1
+              max: 99
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        zone_4_min_duration:
+          name: Zone 4 minimum duration
+          default: 5
+          selector:
+            number:
+              min: 1
+              max: 120
+              step: 1
+              unit_of_measurement: min
+              mode: slider
+
+        zone_4_max_duration:
+          name: Zone 4 maximum duration
+          default: 30
+          selector:
+            number:
+              min: 1
+              max: 240
+              step: 1
+              unit_of_measurement: min
+              mode: slider
+
+        zone_4_minutes_per_percent:
+          name: Zone 4 minutes per moisture-deficit percent
+          default: 1
+          selector:
+            number:
+              min: 0
+              max: 10
+              step: 0.1
+              unit_of_measurement: min/%
+              mode: slider
+
+        zone_4_cycle_enabled:
+          name: Zone 4 cycle and soak
+          default: false
+          selector:
+            boolean: {}
+
+        zone_4_cycle_duration:
+          name: Zone 4 cycle duration
+          default: 5
+          selector:
+            number:
+              min: 1
+              max: 60
+              step: 1
+              unit_of_measurement: min
+              mode: slider
+
+        zone_4_soak_duration:
+          name: Zone 4 soak duration
+          default: 10
+          selector:
+            number:
+              min: 1
+              max: 120
+              step: 1
+              unit_of_measurement: min
+              mode: slider
+
+variables:
+  start_mode_input: !input start_mode
+  log_actions_input: !input log_actions
+  minimum_interval_input: !input minimum_interval
+
+  rain_entity: !input rain_forecast
+  rain_none_below_input: !input rain_none_below
+  rain_low_below_input: !input rain_low_below
+  rain_medium_below_input: !input rain_medium_below
+  rain_high_below_input: !input rain_high_below
+  rain_low_reduction_input: !input rain_low_reduction
+  rain_medium_reduction_input: !input rain_medium_reduction
+  rain_high_reduction_input: !input rain_high_reduction
+  critical_rain_reduction_input: !input critical_rain_reduction
+
+  temp_very_cool_input: !input temp_very_cool
+  temp_cool_input: !input temp_cool
+  temp_warm_input: !input temp_warm
+  temp_hot_input: !input temp_hot
+  temp_extreme_input: !input temp_extreme
+  temp_very_cool_adjustment_input: !input temp_very_cool_adjustment
+  temp_cool_adjustment_input: !input temp_cool_adjustment
+  temp_warm_adjustment_input: !input temp_warm_adjustment
+  temp_hot_adjustment_input: !input temp_hot_adjustment
+  temp_extreme_adjustment_input: !input temp_extreme_adjustment
+  humidity_high_input: !input humidity_high
+  humidity_low_input: !input humidity_low
+  humidity_high_adjustment_input: !input humidity_high_adjustment
+  humidity_low_adjustment_input: !input humidity_low_adjustment
+  summer_multiplier_input: !input summer_multiplier
+  autumn_multiplier_input: !input autumn_multiplier
+  winter_multiplier_input: !input winter_multiplier
+  spring_multiplier_input: !input spring_multiplier
+
+  configured_pump: !input pump
+  pump_delay_input: !input pump_delay
+  configured_tank: !input tank_level
+  minimum_tank_level_input: !input minimum_tank_level
+  water_rate_input: !input water_rate
+
+  zones:
+    - id: "Zone 1"
+      enabled: !input zone_1_enabled
+      valve: !input zone_1_valve
+      moisture: !input zone_1_moisture
+      temperature: !input zone_1_temperature
+      humidity: !input zone_1_humidity
+      target: !input zone_1_target
+      threshold: !input zone_1_threshold
+      critical: !input zone_1_critical
+      min_duration: !input zone_1_min_duration
+      max_duration: !input zone_1_max_duration
+      minutes_per_percent: !input zone_1_minutes_per_percent
+      cycle_enabled: !input zone_1_cycle_enabled
+      cycle_duration: !input zone_1_cycle_duration
+      soak_duration: !input zone_1_soak_duration
+
+    - id: "Zone 2"
+      enabled: !input zone_2_enabled
+      valve: !input zone_2_valve
+      moisture: !input zone_2_moisture
+      temperature: !input zone_2_temperature
+      humidity: !input zone_2_humidity
+      target: !input zone_2_target
+      threshold: !input zone_2_threshold
+      critical: !input zone_2_critical
+      min_duration: !input zone_2_min_duration
+      max_duration: !input zone_2_max_duration
+      minutes_per_percent: !input zone_2_minutes_per_percent
+      cycle_enabled: !input zone_2_cycle_enabled
+      cycle_duration: !input zone_2_cycle_duration
+      soak_duration: !input zone_2_soak_duration
+
+    - id: "Zone 3"
+      enabled: !input zone_3_enabled
+      valve: !input zone_3_valve
+      moisture: !input zone_3_moisture
+      temperature: !input zone_3_temperature
+      humidity: !input zone_3_humidity
+      target: !input zone_3_target
+      threshold: !input zone_3_threshold
+      critical: !input zone_3_critical
+      min_duration: !input zone_3_min_duration
+      max_duration: !input zone_3_max_duration
+      minutes_per_percent: !input zone_3_minutes_per_percent
+      cycle_enabled: !input zone_3_cycle_enabled
+      cycle_duration: !input zone_3_cycle_duration
+      soak_duration: !input zone_3_soak_duration
+
+    - id: "Zone 4"
+      enabled: !input zone_4_enabled
+      valve: !input zone_4_valve
+      moisture: !input zone_4_moisture
+      temperature: !input zone_4_temperature
+      humidity: !input zone_4_humidity
+      target: !input zone_4_target
+      threshold: !input zone_4_threshold
+      critical: !input zone_4_critical
+      min_duration: !input zone_4_min_duration
+      max_duration: !input zone_4_max_duration
+      minutes_per_percent: !input zone_4_minutes_per_percent
+      cycle_enabled: !input zone_4_cycle_enabled
+      cycle_duration: !input zone_4_cycle_duration
+      soak_duration: !input zone_4_soak_duration
+
+triggers:
+  - trigger: time
+    at: !input fixed_start
+    id: fixed
+
+  - trigger: sun
+    event: sunrise
+    offset: !input sun_offset
+    id: sunrise
+
+  - trigger: sun
+    event: sunset
+    offset: !input sun_offset
+    id: sunset
+
+  - trigger: time
+    at: "02:00:00"
+    id: night
+
+conditions:
+  - condition: template
+    value_template: "{{ trigger.id == start_mode_input }}"
+
+  - condition: template
+    value_template: >
+      {% if minimum_interval_input | float(0) == 0 %}
+        true
+      {% elif this.attributes.last_triggered is none %}
+        true
+      {% else %}
+        {{ (as_timestamp(now()) - as_timestamp(this.attributes.last_triggered))
+           >= minimum_interval_input | float(0) * 3600 }}
+      {% endif %}
+
+actions:
+  - if:
+      - condition: template
+        value_template: >
+          {{ configured_tank is not none and
+             states(configured_tank) not in ['unknown', 'unavailable', 'none'] and
+             states(configured_tank) | float(0) < minimum_tank_level_input | float(0) }}
+    then:
+      - if:
+          - condition: template
+            value_template: "{{ log_actions_input }}"
+        then:
+          - action: persistent_notification.create
+            data:
+              title: "Irrigation blocked"
+              message: >
+                Tank level is {{ states(configured_tank) }} and the minimum allowed level is
+                {{ minimum_tank_level_input }}.
+      - stop: "Tank level too low."
+
+  - if:
+      - condition: template
+        value_template: "{{ configured_pump is not none }}"
+    then:
+      - action: homeassistant.turn_on
+        target:
+          entity_id: !input pump
+      - delay:
+          seconds: !input pump_delay
+
+  - repeat:
+      for_each: "{{ zones }}"
+      sequence:
+        - variables:
+            zone: "{{ repeat.item }}"
+
+        - choose:
+            - conditions:
+                - condition: template
+                  value_template: "{{ not zone.enabled }}"
+              sequence: []
+
+            - conditions:
+                - condition: template
+                  value_template: >
+                    {{ zone.valve is none or zone.moisture is none }}
+              sequence:
+                - if:
+                    - condition: template
+                      value_template: "{{ log_actions_input }}"
+                  then:
+                    - action: persistent_notification.create
+                      data:
+                        title: "{{ zone.id }} skipped"
+                        message: "Zone is enabled but its valve or soil-moisture sensor is not configured."
+
+            - conditions:
+                - condition: template
+                  value_template: >
+                    {{ states(zone.moisture) in ['unknown', 'unavailable', 'none'] }}
+              sequence:
+                - if:
+                    - condition: template
+                      value_template: "{{ log_actions_input }}"
+                  then:
+                    - action: persistent_notification.create
+                      data:
+                        title: "{{ zone.id }} skipped"
+                        message: "Soil-moisture sensor is unavailable."
+
+            - conditions:
+                - condition: template
+                  value_template: >
+                    {{ states(zone.moisture) | float(0) > zone.threshold | float(0) }}
+              sequence:
+                - if:
+                    - condition: template
+                      value_template: "{{ log_actions_input }}"
+                  then:
+                    - action: persistent_notification.create
+                      data:
+                        title: "{{ zone.id }} skipped"
+                        message: >
+                          Soil moisture is {{ states(zone.moisture) | float(0) | round(1) }}%,
+                          above the watering threshold of {{ zone.threshold | round(1) }}%.
+
+            - conditions: []
+              sequence:
+                - variables:
+                    soil: "{{ states(zone.moisture) | float(0) }}"
+                    target: "{{ zone.target | float(0) }}"
+                    deficit: >
+                      {{ [zone.target | float(0) - states(zone.moisture) | float(0), 0] | max }}
+
+                    rain: >
+                      {% if rain_entity is not none and
+                            states(rain_entity) not in ['unknown', 'unavailable', 'none'] %}
+                        {{ states(rain_entity) | float(0) }}
+                      {% else %}
+                        0
+                      {% endif %}
+
+                    base_duration: >
+                      {{ [zone.min_duration | float(0),
+                          [zone.max_duration | float(0),
+                           zone.min_duration | float(0) +
+                           ([zone.target | float(0) - states(zone.moisture) | float(0), 0] | max) *
+                           zone.minutes_per_percent | float(0)] | min] | max }}
+
+                    temperature_value: >
+                      {% if zone.temperature is not none and
+                            states(zone.temperature) not in ['unknown', 'unavailable', 'none'] %}
+                        {{ states(zone.temperature) | float(0) }}
+                      {% else %}
+                        none
+                      {% endif %}
+
+                    humidity_value: >
+                      {% if zone.humidity is not none and
+                            states(zone.humidity) not in ['unknown', 'unavailable', 'none'] %}
+                        {{ states(zone.humidity) | float(0) }}
+                      {% else %}
+                        none
+                      {% endif %}
+
+                - variables:
+                    rain_reduction: >
+                      {% if rain < rain_none_below_input | float(0) %}
+                        0
+                      {% elif rain < rain_low_below_input | float(0) %}
+                        {{ rain_low_reduction_input | float(0) }}
+                      {% elif rain < rain_medium_below_input | float(0) %}
+                        {{ rain_medium_reduction_input | float(0) }}
+                      {% elif rain < rain_high_below_input | float(0) %}
+                        {{ rain_high_reduction_input | float(0) }}
+                      {% else %}
+                        100
+                      {% endif %}
+
+                    temperature_adjustment: >
+                      {% if temperature_value is none %}
+                        0
+                      {% elif temperature_value < temp_very_cool_input | float(15) %}
+                        {{ temp_very_cool_adjustment_input | float(0) }}
+                      {% elif temperature_value < temp_cool_input | float(22) %}
+                        {{ temp_cool_adjustment_input | float(0) }}
+                      {% elif temperature_value >= temp_extreme_input | float(35) %}
+                        {{ temp_extreme_adjustment_input | float(0) }}
+                      {% elif temperature_value >= temp_hot_input | float(32) %}
+                        {{ temp_hot_adjustment_input | float(0) }}
+                      {% elif temperature_value >= temp_warm_input | float(28) %}
+                        {{ temp_warm_adjustment_input | float(0) }}
+                      {% else %}
+                        0
+                      {% endif %}
+
+                    humidity_adjustment: >
+                      {% if humidity_value is none %}
+                        0
+                      {% elif humidity_value > humidity_high_input | float(80) %}
+                        {{ humidity_high_adjustment_input | float(0) }}
+                      {% elif humidity_value < humidity_low_input | float(40) %}
+                        {{ humidity_low_adjustment_input | float(0) }}
+                      {% else %}
+                        0
+                      {% endif %}
+
+                    seasonal_multiplier: >
+                      {% set month = now().month %}
+                      {% if month in [12, 1, 2] %}
+                        {{ summer_multiplier_input | float(1.15) }}
+                      {% elif month in [3, 4, 5] %}
+                        {{ autumn_multiplier_input | float(1) }}
+                      {% elif month in [6, 7, 8] %}
+                        {{ winter_multiplier_input | float(0.70) }}
+                      {% else %}
+                        {{ spring_multiplier_input | float(1.05) }}
+                      {% endif %}
+
+                - variables:
+                    effective_rain_reduction: >
+                      {% if soil <= zone.critical | float(0) %}
+                        {{ [rain_reduction | float(0), critical_rain_reduction_input | float(0)] | min }}
+                      {% else %}
+                        {{ rain_reduction | float(0) }}
+                      {% endif %}
+
+                    final_duration: >
+                      {% set d = base_duration | float(0) %}
+                      {% set r = effective_rain_reduction | float(0) %}
+                      {% set t = temperature_adjustment | float(0) %}
+                      {% set h = humidity_adjustment | float(0) %}
+                      {% set s = seasonal_multiplier | float(1) %}
+                      {{ [zone.min_duration | float(0),
+                          [zone.max_duration | float(0),
+                           d * (1 - r / 100) * (1 + t / 100) * (1 + h / 100) * s] | min] | max | round(1) }}
+
+                - if:
+                    - condition: template
+                      value_template: >
+                        {{ rain >= rain_high_below_input | float(0)
+                           and soil > zone.critical | float(0) }}
+                  then:
+                    - if:
+                        - condition: template
+                          value_template: "{{ log_actions_input }}"
+                      then:
+                        - action: persistent_notification.create
+                          data:
+                            title: "{{ zone.id }} skipped"
+                            message: >
+                              Predicted rain is {{ rain | round(1) }} mm. Soil moisture is
+                              {{ soil | round(1) }}%, above the critical dryness threshold of
+                              {{ zone.critical | round(1) }}%.
+                  else:
+                    - if:
+                        - condition: template
+                          value_template: "{{ log_actions_input }}"
+                      then:
+                        - action: persistent_notification.create
+                          data:
+                            title: "{{ zone.id }} irrigation started"
+                            message: >
+                              Soil {{ soil | round(1) }}% / target {{ target | round(1) }}%
+                              (deficit {{ deficit | round(1) }}%). Forecast rain
+                              {{ rain | round(1) }} mm; rain reduction
+                              {{ effective_rain_reduction | round(1) }}%. Temperature adjustment
+                              {{ temperature_adjustment | round(1) }}%; humidity adjustment
+                              {{ humidity_adjustment | round(1) }}%; seasonal multiplier
+                              {{ seasonal_multiplier | round(2) }}. Final duration:
+                              {{ final_duration | round(1) }} minutes.
+
+                    - if:
+                        - condition: template
+                          value_template: "{{ final_duration | float(0) > 0 }}"
+                      then:
+                        - if:
+                            - condition: template
+                              value_template: "{{ zone.cycle_enabled }}"
+                          then:
+                            - variables:
+                                remaining_duration: "{{ final_duration | float(0) }}"
+
+                            - repeat:
+                                while:
+                                  - condition: template
+                                    value_template: "{{ remaining_duration | float(0) > 0 }}"
+                                sequence:
+                                  - variables:
+                                      this_cycle: >
+                                        {{ [zone.cycle_duration | float(1),
+                                            remaining_duration | float(0)] | min }}
+
+                                  - action: homeassistant.turn_on
+                                    target:
+                                      entity_id: "{{ zone.valve }}"
+
+                                  - delay:
+                                      minutes: "{{ this_cycle }}"
+
+                                  - action: homeassistant.turn_off
+                                    target:
+                                      entity_id: "{{ zone.valve }}"
+
+                                  - variables:
+                                      remaining_duration: >
+                                        {{ [remaining_duration | float(0) - this_cycle | float(0), 0] | max }}
+
+                                  - if:
+                                      - condition: template
+                                        value_template: "{{ remaining_duration | float(0) > 0 }}"
+                                    then:
+                                      - delay:
+                                          minutes: "{{ zone.soak_duration }}"
+                          else:
+                            - action: homeassistant.turn_on
+                              target:
+                                entity_id: "{{ zone.valve }}"
+
+                            - delay:
+                                minutes: "{{ final_duration }}"
+
+                            - action: homeassistant.turn_off
+                              target:
+                                entity_id: "{{ zone.valve }}"
+
+  - if:
+      - condition: template
+        value_template: "{{ configured_pump is not none }}"
+    then:
+      - action: homeassistant.turn_off
+        target:
+          entity_id: !input pump
+
+  - if:
+      - condition: template
+        value_template: "{{ water_rate_input | float(0) > 0 and log_actions_input }}"
+    then:
+      - action: persistent_notification.create
+        data:
+          title: "Irrigation complete"
+          message: >
+            Irrigation cycle complete. Configured flow rate is
+            {{ water_rate_input | float(0) | round(1) }} L/min.
+            V1 logs the calculated duration for each zone; cumulative litre
+            accounting will be added in a later revision.
+
+mode: single
+max_exceeded: silent
