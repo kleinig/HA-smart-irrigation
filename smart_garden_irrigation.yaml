@@ -46,7 +46,7 @@ blueprint:
         minimum_interval_hours:
           name: Minimum interval
           description: Prevent a new scheduled cycle until this many hours have passed.
-          default: 23
+          default: 24
           selector:
             number:
               min: 0
