@@ -11,7 +11,7 @@ blueprint:
     schedule:
       name: Schedule
       icon: mdi:clock-outline
-      collapsed: true
+      collapsed: false
       input:
         schedule_mode:
           name: Start mode
@@ -35,14 +35,17 @@ blueprint:
           selector:
             time:
 
-        sun_offset:
+        sun_offset_minutes:
           name: Sunrise/sunset offset
           description: Offset before or after sunrise/sunset. Negative is before; positive is after.
-          default:
-            minutes: 0
+          default: 0
           selector:
-            duration:
-              enable_day: false
+            number:
+              min: -120
+              max: 120
+              step: 5
+              unit_of_measurement: min
+              mode: slider
 
         minimum_interval_hours:
           name: Minimum interval
@@ -59,7 +62,7 @@ blueprint:
     weather:
       name: Weather
       icon: mdi:weather-partly-cloudy
-      collapsed: true
+      collapsed: false
       input:
         weather_entity:
           name: Weather Entity
@@ -205,9 +208,9 @@ blueprint:
               mode: slider
 
     global:
-      name: Global irrigation settings
+      name: Global irrigation
       icon: mdi:sprinkler
-      collapsed: true
+      collapsed: false
       input:
         target_moisture:
           name: Target soil moisture
@@ -564,7 +567,7 @@ blueprint:
     zones:
       name: Zones
       icon: mdi:sprinkler-variant
-      collapsed: true
+      collapsed: false
       input:
         zone_1_enabled:
           name: Zone 1 enabled
@@ -603,6 +606,7 @@ blueprint:
 
         zone_2_valve:
           name: Zone 2 valve
+          default: []
           selector:
             entity:
               filter:
@@ -613,6 +617,7 @@ blueprint:
 
         zone_2_moisture:
           name: Zone 2 soil moisture
+          default: []
           selector:
             entity:
               filter:
@@ -712,6 +717,12 @@ variables:
   forecast_type: !input forecast_type
   forecast_days: !input forecast_days
   schedule_mode: !input schedule_mode
+  sun_offset_minutes: !input sun_offset_minutes
+  sun_offset: >-
+    {% set seconds = (sun_offset_minutes | int(0)) * 60 %}
+    {% set sign = '-' if seconds < 0 else '' %}
+    {% set absolute = seconds | abs %}
+    {{ sign ~ '%02d:%02d:%02d' | format(absolute // 3600, (absolute % 3600) // 60, absolute % 60) }}
   environmental_compensation: !input enable_environmental_compensation
   temperature_compensation: !input enable_temperature_compensation
   humidity_compensation: !input enable_humidity_compensation
@@ -785,12 +796,12 @@ triggers:
 
   - trigger: sun
     event: sunrise
-    offset: !input sun_offset
+    offset: "{{ sun_offset }}"
     enabled: "{{ _schedule_mode == 'sunrise' }}"
 
   - trigger: sun
     event: sunset
-    offset: !input sun_offset
+    offset: "{{ sun_offset }}"
     enabled: "{{ _schedule_mode == 'sunset' }}"
 
 conditions:
