@@ -1,0 +1,997 @@
+blueprint:
+  name: Smart Garden Irrigation V2 - 4 Zone BOM Weather
+  description: >
+    Four-zone smart irrigation blueprint using soil-moisture deficit,
+    BOM hourly weather forecasts, temperature, humidity, seasonal adjustment,
+    rain-aware watering, cycle-and-soak, optional pump/tank protection,
+    sequential zones, and detailed persistent logging.
+  domain: automation
+  min_version: "2024.6.0"
+
+  input:
+    schedule:
+      name: Schedule
+      icon: mdi:clock-outline
+      input:
+        start_time:
+          name: Start time
+          description: Time at which the irrigation cycle should start.
+          default: "21:00:00"
+          selector:
+            time:
+
+        minimum_interval_hours:
+          name: Minimum interval
+          description: Prevent a new scheduled cycle until this many hours have passed.
+          default: 24
+          selector:
+            number:
+              min: 0
+              max: 168
+              step: 1
+              unit_of_measurement: h
+              mode: box
+
+    weather:
+      name: Weather
+      icon: mdi:weather-partly-cloudy
+      input:
+        weather_entity:
+          name: BOM hourly weather entity
+          description: >
+            Select the BOM hourly weather entity. The blueprint retrieves its
+            hourly forecast using weather.get_forecasts.
+          selector:
+            entity:
+              filter:
+                domain: weather
+
+        forecast_hours:
+          name: Rain forecast window
+          description: Number of upcoming forecast hours used for the rain decision.
+          default: 24
+          selector:
+            number:
+              min: 1
+              max: 48
+              step: 1
+              unit_of_measurement: h
+              mode: box
+
+        rain_probability_threshold:
+          name: Rain probability threshold
+          description: Probability at or above which forecast rain is considered significant.
+          default: 50
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 5
+              unit_of_measurement: "%"
+              mode: slider
+
+        rain_amount_threshold:
+          name: Rain amount threshold
+          description: Forecast precipitation amount considered meaningful when probability is sufficient.
+          default: 2
+          selector:
+            number:
+              min: 0
+              max: 50
+              step: 0.5
+              unit_of_measurement: mm
+              mode: box
+
+        rain_reduction_2mm:
+          name: Light rain reduction
+          description: Reduction when forecast rain reaches the configured light-rain threshold.
+          default: 15
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 5
+              unit_of_measurement: "%"
+              mode: slider
+
+        rain_reduction_5mm:
+          name: Moderate rain reduction
+          default: 35
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 5
+              unit_of_measurement: "%"
+              mode: slider
+
+        rain_reduction_10mm:
+          name: Heavy rain reduction
+          default: 65
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 5
+              unit_of_measurement: "%"
+              mode: slider
+
+        rain_skip_amount:
+          name: Rain skip amount
+          description: Skip normal irrigation when forecast rainfall reaches this amount.
+          default: 20
+          selector:
+            number:
+              min: 1
+              max: 100
+              step: 1
+              unit_of_measurement: mm
+              mode: box
+
+        rainy_condition_reduction:
+          name: Rainy-condition probability reduction
+          description: >
+            Fallback reduction when BOM reports a rainy/showery condition and
+            probability is significant but precipitation amount is reported as 0 mm.
+          default: 25
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 5
+              unit_of_measurement: "%"
+              mode: slider
+
+        critical_rain_max_reduction:
+          name: Critical dryness maximum rain reduction
+          description: Maximum rain reduction allowed when a zone is critically dry.
+          default: 50
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 5
+              unit_of_measurement: "%"
+              mode: slider
+
+    global:
+      name: Global irrigation settings
+      icon: mdi:sprinkler
+      input:
+        target_moisture:
+          name: Target soil moisture
+          default: 40
+          selector:
+            number:
+              min: 1
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        critical_moisture:
+          name: Critical soil moisture
+          description: Below this value, irrigation is considered critical.
+          default: 20
+          selector:
+            number:
+              min: 1
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        minimum_duration:
+          name: Minimum watering duration
+          default: 5
+          selector:
+            number:
+              min: 0
+              max: 120
+              step: 1
+              unit_of_measurement: min
+              mode: box
+
+        minutes_per_percent_deficit:
+          name: Minutes per percent moisture deficit
+          default: 1
+          selector:
+            number:
+              min: 0.1
+              max: 10
+              step: 0.1
+              unit_of_measurement: min/%
+              mode: box
+
+        maximum_duration:
+          name: Maximum watering duration
+          default: 60
+          selector:
+            number:
+              min: 1
+              max: 240
+              step: 1
+              unit_of_measurement: min
+              mode: box
+
+        flow_rate:
+          name: Estimated flow rate
+          description: Optional estimated irrigation flow used only for water-use logging.
+          default: 10
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 0.5
+              unit_of_measurement: L/min
+              mode: box
+
+        cycle_duration:
+          name: Cycle-and-soak ON duration
+          description: Set to 0 to disable cycle-and-soak.
+          default: 5
+          selector:
+            number:
+              min: 0
+              max: 60
+              step: 1
+              unit_of_measurement: min
+              mode: box
+
+        soak_duration:
+          name: Cycle-and-soak OFF duration
+          default: 10
+          selector:
+            number:
+              min: 0
+              max: 120
+              step: 1
+              unit_of_measurement: min
+              mode: box
+
+    compensation:
+      name: Environmental compensation
+      icon: mdi:thermometer-water
+      input:
+        cold_multiplier:
+          name: Cold multiplier (<15°C)
+          default: 0.80
+          selector:
+            number:
+              min: 0
+              max: 2
+              step: 0.05
+              mode: box
+
+        cool_multiplier:
+          name: Cool multiplier (15–22°C)
+          default: 0.90
+          selector:
+            number:
+              min: 0
+              max: 2
+              step: 0.05
+              mode: box
+
+        warm_multiplier:
+          name: Warm multiplier (22–28°C)
+          default: 1.00
+          selector:
+            number:
+              min: 0
+              max: 2
+              step: 0.05
+              mode: box
+
+        hot_multiplier:
+          name: Hot multiplier (28–32°C)
+          default: 1.15
+          selector:
+            number:
+              min: 0
+              max: 2
+              step: 0.05
+              mode: box
+
+        very_hot_multiplier:
+          name: Very hot multiplier (32–35°C)
+          default: 1.30
+          selector:
+            number:
+              min: 0
+              max: 2
+              step: 0.05
+              mode: box
+
+        extreme_hot_multiplier:
+          name: Extreme heat multiplier (>35°C)
+          default: 1.45
+          selector:
+            number:
+              min: 0
+              max: 2
+              step: 0.05
+              mode: box
+
+        high_humidity_multiplier:
+          name: High humidity multiplier (>80%)
+          default: 0.90
+          selector:
+            number:
+              min: 0
+              max: 2
+              step: 0.05
+              mode: box
+
+        normal_humidity_multiplier:
+          name: Normal humidity multiplier (60–80%)
+          default: 1.00
+          selector:
+            number:
+              min: 0
+              max: 2
+              step: 0.05
+              mode: box
+
+        medium_humidity_multiplier:
+          name: Medium humidity multiplier (40–60%)
+          default: 1.05
+          selector:
+            number:
+              min: 0
+              max: 2
+              step: 0.05
+              mode: box
+
+        low_humidity_multiplier:
+          name: Low humidity multiplier (<40%)
+          default: 1.10
+          selector:
+            number:
+              min: 0
+              max: 2
+              step: 0.05
+              mode: box
+
+        summer_multiplier:
+          name: Summer multiplier (Dec–Feb)
+          default: 1.15
+          selector:
+            number:
+              min: 0
+              max: 2
+              step: 0.05
+              mode: box
+
+        autumn_multiplier:
+          name: Autumn multiplier (Mar–May)
+          default: 1.00
+          selector:
+            number:
+              min: 0
+              max: 2
+              step: 0.05
+              mode: box
+
+        winter_multiplier:
+          name: Winter multiplier (Jun–Aug)
+          default: 0.70
+          selector:
+            number:
+              min: 0
+              max: 2
+              step: 0.05
+              mode: box
+
+        spring_multiplier:
+          name: Spring multiplier (Sep–Nov)
+          default: 1.05
+          selector:
+            number:
+              min: 0
+              max: 2
+              step: 0.05
+              mode: box
+
+    pump:
+      name: Pump and tank protection
+      icon: mdi:pump
+      collapsed: true
+      input:
+        pump_entity:
+          name: Pump
+          description: Optional pump switch. Leave empty if no pump is required.
+          default: []
+          selector:
+            entity:
+              filter:
+                domain: switch
+
+        pump_start_delay:
+          name: Pump startup delay
+          default: 5
+          selector:
+            number:
+              min: 0
+              max: 60
+              step: 1
+              unit_of_measurement: s
+              mode: box
+
+        tank_level_sensor:
+          name: Tank level sensor
+          description: Optional numeric sensor reporting tank level as a percentage.
+          default: []
+          selector:
+            entity:
+              filter:
+                domain: sensor
+
+        minimum_tank_level:
+          name: Minimum tank level
+          default: 20
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+    zones:
+      name: Zones
+      icon: mdi:sprinkler-variant
+      input:
+        zone_1_enabled:
+          name: Zone 1 enabled
+          default: true
+          selector:
+            boolean:
+
+        zone_1_valve:
+          name: Zone 1 valve
+          selector:
+            entity:
+              filter:
+                domain:
+                  - switch
+                  - light
+                  - valve
+
+        zone_1_moisture:
+          name: Zone 1 soil moisture
+          selector:
+            entity:
+              filter:
+                domain: sensor
+
+        zone_1_name:
+          name: Zone 1 name
+          default: Zone 1
+          selector:
+            text:
+
+        zone_2_enabled:
+          name: Zone 2 enabled
+          default: true
+          selector:
+            boolean:
+
+        zone_2_valve:
+          name: Zone 2 valve
+          selector:
+            entity:
+              filter:
+                domain:
+                  - switch
+                  - light
+                  - valve
+
+        zone_2_moisture:
+          name: Zone 2 soil moisture
+          selector:
+            entity:
+              filter:
+                domain: sensor
+
+        zone_2_name:
+          name: Zone 2 name
+          default: Zone 2
+          selector:
+            text:
+
+        zone_3_enabled:
+          name: Zone 3 enabled
+          default: false
+          selector:
+            boolean:
+
+        zone_3_valve:
+          name: Zone 3 valve
+          default: []
+          selector:
+            entity:
+              filter:
+                domain:
+                  - switch
+                  - light
+                  - valve
+
+        zone_3_moisture:
+          name: Zone 3 soil moisture
+          default: []
+          selector:
+            entity:
+              filter:
+                domain: sensor
+
+        zone_3_name:
+          name: Zone 3 name
+          default: Zone 3
+          selector:
+            text:
+
+        zone_4_enabled:
+          name: Zone 4 enabled
+          default: false
+          selector:
+            boolean:
+
+        zone_4_valve:
+          name: Zone 4 valve
+          default: []
+          selector:
+            entity:
+              filter:
+                domain:
+                  - switch
+                  - light
+                  - valve
+
+        zone_4_moisture:
+          name: Zone 4 soil moisture
+          default: []
+          selector:
+            entity:
+              filter:
+                domain: sensor
+
+        zone_4_name:
+          name: Zone 4 name
+          default: Zone 4
+          selector:
+            text:
+
+    notifications:
+      name: Notifications and logging
+      icon: mdi:message-text-outline
+      collapsed: true
+      input:
+        notify_service:
+          name: Notification service
+          description: Optional notify service. Leave blank to use persistent notifications only.
+          default: ""
+          selector:
+            text:
+
+        create_persistent_notifications:
+          name: Persistent notifications
+          default: true
+          selector:
+            boolean:
+
+mode: single
+max_exceeded: silent
+
+variables:
+  weather_entity: !input weather_entity
+  forecast_hours: !input forecast_hours
+  rain_probability_threshold: !input rain_probability_threshold
+  rain_amount_threshold: !input rain_amount_threshold
+  rain_reduction_2mm: !input rain_reduction_2mm
+  rain_reduction_5mm: !input rain_reduction_5mm
+  rain_reduction_10mm: !input rain_reduction_10mm
+  rain_skip_amount: !input rain_skip_amount
+  rainy_condition_reduction: !input rainy_condition_reduction
+  critical_rain_max_reduction: !input critical_rain_max_reduction
+  target_moisture: !input target_moisture
+  critical_moisture: !input critical_moisture
+  minimum_duration: !input minimum_duration
+  minutes_per_percent_deficit: !input minutes_per_percent_deficit
+  maximum_duration: !input maximum_duration
+  flow_rate: !input flow_rate
+  cycle_duration: !input cycle_duration
+  soak_duration: !input soak_duration
+  cold_multiplier: !input cold_multiplier
+  cool_multiplier: !input cool_multiplier
+  warm_multiplier: !input warm_multiplier
+  hot_multiplier: !input hot_multiplier
+  very_hot_multiplier: !input very_hot_multiplier
+  extreme_hot_multiplier: !input extreme_hot_multiplier
+  high_humidity_multiplier: !input high_humidity_multiplier
+  normal_humidity_multiplier: !input normal_humidity_multiplier
+  medium_humidity_multiplier: !input medium_humidity_multiplier
+  low_humidity_multiplier: !input low_humidity_multiplier
+  summer_multiplier: !input summer_multiplier
+  autumn_multiplier: !input autumn_multiplier
+  winter_multiplier: !input winter_multiplier
+  spring_multiplier: !input spring_multiplier
+  pump_entity: !input pump_entity
+  pump_start_delay: !input pump_start_delay
+  tank_level_sensor: !input tank_level_sensor
+  minimum_tank_level: !input minimum_tank_level
+  zone_1_enabled: !input zone_1_enabled
+  zone_1_valve: !input zone_1_valve
+  zone_1_moisture: !input zone_1_moisture
+  zone_1_name: !input zone_1_name
+  zone_2_enabled: !input zone_2_enabled
+  zone_2_valve: !input zone_2_valve
+  zone_2_moisture: !input zone_2_moisture
+  zone_2_name: !input zone_2_name
+  zone_3_enabled: !input zone_3_enabled
+  zone_3_valve: !input zone_3_valve
+  zone_3_moisture: !input zone_3_moisture
+  zone_3_name: !input zone_3_name
+  zone_4_enabled: !input zone_4_enabled
+  zone_4_valve: !input zone_4_valve
+  zone_4_moisture: !input zone_4_moisture
+  zone_4_name: !input zone_4_name
+  notify_service: !input notify_service
+  create_persistent_notifications: !input create_persistent_notifications
+
+triggers:
+  - trigger: time
+    at: !input start_time
+
+conditions:
+  - condition: template
+    value_template: >
+      {% set last = this.attributes.last_triggered %}
+      {{ last is none or
+         (as_timestamp(now()) - as_timestamp(last)) >=
+         ((minimum_interval_hours | float(24)) * 3600) }}
+
+actions:
+  - action: weather.get_forecasts
+    target:
+      entity_id: !input weather_entity
+    data:
+      type: hourly
+    response_variable: weather_response
+
+  - variables:
+      hourly_forecast: >
+        {{ weather_response.get(weather_entity, {}).get('forecast', []) }}
+      forecast_window: >
+        {{ hourly_forecast[:forecast_hours | int(24)] }}
+
+  - variables:
+      forecast_rain_total: >
+        {{ forecast_window
+           | map(attribute='precipitation')
+           | map('float', 0)
+           | sum
+           | round(2) }}
+      forecast_max_probability: >
+        {{ forecast_window
+           | map(attribute='precipitation_probability')
+           | map('float', 0)
+           | max
+           | default(0) }}
+      forecast_max_amount: >
+        {{ forecast_window
+           | map(attribute='precipitation')
+           | map('float', 0)
+           | max
+           | default(0) }}
+      rainy_forecast_hours: >
+        {{ forecast_window
+           | selectattr('condition', 'in', ['rainy', 'pouring', 'lightning-rainy', 'hail'])
+           | list
+           | length }}
+
+  - variables:
+      rain_reduction: >
+        {% set total = forecast_rain_total | float(0) %}
+        {% set max_amount = forecast_max_amount | float(0) %}
+        {% set max_prob = forecast_max_probability | float(0) %}
+        {% if total >= rain_skip_amount and max_prob >= rain_probability_threshold %}
+          100
+        {% elif total >= 10 and max_prob >= rain_probability_threshold %}
+          {{ rain_reduction_10mm }}
+        {% elif total >= 5 and max_prob >= rain_probability_threshold %}
+          {{ rain_reduction_5mm }}
+        {% elif total >= rain_amount_threshold and max_prob >= rain_probability_threshold %}
+          {{ rain_reduction_2mm }}
+        {% elif rainy_forecast_hours > 0 and max_prob >= rain_probability_threshold %}
+          {{ rainy_condition_reduction }}
+        {% else %}
+          0
+        {% endif %}
+
+  - variables:
+      zones:
+        - enabled: "{{ zone_1_enabled }}"
+          valve: "{{ zone_1_valve }}"
+          moisture: "{{ zone_1_moisture }}"
+          name: "{{ zone_1_name }}"
+        - enabled: "{{ zone_2_enabled }}"
+          valve: "{{ zone_2_valve }}"
+          moisture: "{{ zone_2_moisture }}"
+          name: "{{ zone_2_name }}"
+        - enabled: "{{ zone_3_enabled }}"
+          valve: "{{ zone_3_valve }}"
+          moisture: "{{ zone_3_moisture }}"
+          name: "{{ zone_3_name }}"
+        - enabled: "{{ zone_4_enabled }}"
+          valve: "{{ zone_4_valve }}"
+          moisture: "{{ zone_4_moisture }}"
+          name: "{{ zone_4_name }}"
+
+  - variables:
+      active_zones: >
+        {{ zones | selectattr('enabled', 'eq', 'True') | list }}
+
+  - if:
+      - condition: template
+        value_template: "{{ active_zones | length == 0 }}"
+    then:
+      - if:
+          - condition: template
+            value_template: "{{ create_persistent_notifications }}"
+        then:
+          - action: persistent_notification.create
+            data:
+              title: Smart Irrigation
+              message: "Irrigation skipped: no zones are enabled."
+
+      - stop: "No enabled irrigation zones."
+
+  - if:
+      - condition: template
+        value_template: >
+          {{ pump_entity is string and pump_entity | trim != '' and
+             tank_level_sensor is string and tank_level_sensor | trim != '' and
+             states(tank_level_sensor) not in ['unknown', 'unavailable'] and
+             states(tank_level_sensor) | float(0) < minimum_tank_level | float(20) }}
+    then:
+      - if:
+          - condition: template
+            value_template: "{{ create_persistent_notifications }}"
+        then:
+          - action: persistent_notification.create
+            data:
+              title: Smart Irrigation
+              message: >
+                Irrigation skipped: tank level {{ states(tank_level_sensor) }}%
+                is below the minimum {{ minimum_tank_level }}%.
+
+      - stop: "Tank level too low."
+
+  - if:
+      - condition: template
+        value_template: "{{ pump_entity is string and pump_entity | trim != '' }}"
+    then:
+      - action: switch.turn_on
+        target:
+          entity_id: "{{ pump_entity }}"
+      - delay:
+          seconds: "{{ pump_start_delay | int(5) }}"
+
+  - repeat:
+      for_each: "{{ active_zones }}"
+      sequence:
+        - variables:
+            zone_name: "{{ repeat.item.name }}"
+            valve: "{{ repeat.item.valve }}"
+            moisture_entity: "{{ repeat.item.moisture }}"
+            moisture: "{{ states(repeat.item.moisture) | float(none) }}"
+        - if:
+            - condition: template
+              value_template: "{{ moisture is none }}"
+          then:
+            - if:
+                - condition: template
+                  value_template: "{{ create_persistent_notifications }}"
+              then:
+                - action: persistent_notification.create
+                  data:
+                    title: Smart Irrigation - {{ zone_name }}
+                    message: >
+                      Zone skipped: soil moisture sensor {{ moisture_entity }}
+                      is unavailable or invalid.
+            - condition: template
+              value_template: "{{ moisture is not none }}"
+
+        - variables:
+            deficit: "{{ [target_moisture | float(40) - moisture, 0] | max }}"
+            critical: "{{ moisture < critical_moisture | float(20) }}"
+            base_duration: >
+              {{ [minimum_duration | float(5) +
+                  (deficit * minutes_per_percent_deficit | float(1)),
+                  maximum_duration | float(60)] | min }}
+            current_temperature: >
+              {{ state_attr(weather_entity, 'temperature') | float(20) }}
+            current_humidity: >
+              {{ state_attr(weather_entity, 'humidity') | float(60) }}
+
+        - variables:
+            temperature_multiplier: >
+              {% set t = current_temperature | float(20) %}
+              {% if t < 15 %}
+                {{ cold_multiplier }}
+              {% elif t < 22 %}
+                {{ cool_multiplier }}
+              {% elif t < 28 %}
+                {{ warm_multiplier }}
+              {% elif t < 32 %}
+                {{ hot_multiplier }}
+              {% elif t < 35 %}
+                {{ very_hot_multiplier }}
+              {% else %}
+                {{ extreme_hot_multiplier }}
+              {% endif %}
+            humidity_multiplier: >
+              {% set h = current_humidity | float(60) %}
+              {% if h > 80 %}
+                {{ high_humidity_multiplier }}
+              {% elif h >= 60 %}
+                {{ normal_humidity_multiplier }}
+              {% elif h >= 40 %}
+                {{ medium_humidity_multiplier }}
+              {% else %}
+                {{ low_humidity_multiplier }}
+              {% endif %}
+            season_multiplier: >
+              {% set m = now().month %}
+              {% if m in [12, 1, 2] %}
+                {{ summer_multiplier }}
+              {% elif m in [3, 4, 5] %}
+                {{ autumn_multiplier }}
+              {% elif m in [6, 7, 8] %}
+                {{ winter_multiplier }}
+              {% else %}
+                {{ spring_multiplier }}
+              {% endif %}
+
+        - variables:
+            environmental_duration: >
+              {{ base_duration
+                 * temperature_multiplier | float(1)
+                 * humidity_multiplier | float(1)
+                 * season_multiplier | float(1) }}
+            rain_reduction_for_zone: >
+              {% if critical %}
+                {{ [rain_reduction | float(0), critical_rain_max_reduction | float(50)] | min }}
+              {% else %}
+                {{ rain_reduction | float(0) }}
+              {% endif %}
+            final_duration: >
+              {{ [environmental_duration *
+                  (1 - rain_reduction_for_zone / 100),
+                  maximum_duration | float(60)] | min | max(0) | round(1) }}
+
+        - if:
+            - condition: template
+              value_template: >
+                {{ not critical and
+                   rain_reduction_for_zone >= 100 }}
+          then:
+            - if:
+                - condition: template
+                  value_template: "{{ create_persistent_notifications }}"
+              then:
+                - action: persistent_notification.create
+                  data:
+                    title: Smart Irrigation - {{ zone_name }}
+                    message: >
+                      Watering skipped due to forecast rain.
+                      Soil {{ moisture | round(1) }}%, target {{ target_moisture }}%.
+                      Forecast window {{ forecast_hours }}h:
+                      {{ forecast_rain_total }} mm total,
+                      max probability {{ forecast_max_probability }}%.
+            - condition: template
+              value_template: "{{ final_duration | float(0) > 0 }}"
+
+        - if:
+            - condition: template
+              value_template: "{{ final_duration | float(0) <= 0 and create_persistent_notifications }}"
+          then:
+            - action: persistent_notification.create
+              data:
+                title: Smart Irrigation - {{ zone_name }}
+                message: >
+                  Zone skipped: calculated watering duration is 0 minutes.
+                  Soil {{ moisture | round(1) }}%, target {{ target_moisture }}%,
+                  forecast rain reduction {{ rain_reduction_for_zone | round(0) }}%.
+
+        - condition: template
+          value_template: "{{ final_duration | float(0) > 0 }}"
+
+        - if:
+            - condition: template
+              value_template: "{{ create_persistent_notifications }}"
+          then:
+            - action: persistent_notification.create
+              data:
+                title: Smart Irrigation - {{ zone_name }}
+                message: >
+                  Starting irrigation.
+                  Soil {{ moisture | round(1) }}%, target {{ target_moisture }}%,
+                  deficit {{ deficit | round(1) }}%.
+                  Base {{ base_duration | round(1) }} min →
+                  environmental {{ environmental_duration | round(1) }} min →
+                  final {{ final_duration | round(1) }} min.
+                  Forecast {{ forecast_hours }}h:
+                  {{ forecast_rain_total }} mm,
+                  max probability {{ forecast_max_probability }}%,
+                  max amount {{ forecast_max_amount }} mm,
+                  rainy hours {{ rainy_forecast_hours }}.
+                  Temperature {{ current_temperature }}°C,
+                  humidity {{ current_humidity }}%.
+                  Rain reduction {{ rain_reduction_for_zone | round(0) }}%.
+                  Critical dryness: {{ 'yes' if critical else 'no' }}.
+                  Estimated water use: {{ (final_duration | float(0) * flow_rate | float(0)) | round(1) }} L.
+
+        - action: homeassistant.turn_on
+          target:
+            entity_id: "{{ valve }}"
+
+        - if:
+            - condition: template
+              value_template: >
+                {{ cycle_duration | float(0) > 0 and
+                   cycle_duration | float(0) < final_duration | float(0) }}
+          then:
+            - repeat:
+                while:
+                  - condition: template
+                    value_template: "{{ repeat.index * cycle_duration < final_duration }}"
+                sequence:
+                  - delay:
+                      minutes: >
+                        {{ [cycle_duration | float(0),
+                            final_duration | float(0) -
+                            ((repeat.index - 1) * cycle_duration | float(0))] | min }}
+                  - action: homeassistant.turn_off
+                    target:
+                      entity_id: "{{ valve }}"
+                  - if:
+                      - condition: template
+                        value_template: >
+                          {{ (repeat.index * cycle_duration) < final_duration and
+                             soak_duration | float(0) > 0 }}
+                    then:
+                      - delay:
+                          minutes: "{{ soak_duration | float(10) }}"
+                      - action: homeassistant.turn_on
+                        target:
+                          entity_id: "{{ valve }}"
+          else:
+            - delay:
+                minutes: "{{ final_duration | float(0) }}"
+
+        - action: homeassistant.turn_off
+          target:
+            entity_id: "{{ valve }}"
+
+  - if:
+      - condition: template
+        value_template: "{{ pump_entity is string and pump_entity | trim != '' }}"
+    then:
+      - action: switch.turn_off
+        target:
+          entity_id: "{{ pump_entity }}"
+
+  - if:
+      - condition: template
+        value_template: "{{ create_persistent_notifications }}"
+    then:
+      - action: persistent_notification.create
+        data:
+          title: Smart Irrigation - Complete
+          message: >
+            Irrigation cycle completed.
+            Forecast window: {{ forecast_hours }}h,
+            forecast rainfall: {{ forecast_rain_total }} mm,
+            maximum rain probability: {{ forecast_max_probability }}%.
