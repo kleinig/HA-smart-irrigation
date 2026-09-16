@@ -59,6 +59,13 @@ blueprint:
               unit_of_measurement: h
               mode: box
 
+        use_minimum_interval:
+          name: Enforce minimum interval
+          description: Disable this temporarily for testing or manual verification.
+          default: true
+          selector:
+            boolean:
+
     weather:
       name: Weather
       icon: mdi:weather-partly-cloudy
@@ -718,11 +725,6 @@ variables:
   forecast_days: !input forecast_days
   schedule_mode: !input schedule_mode
   sun_offset_minutes: !input sun_offset_minutes
-  sun_offset: >-
-    {% set seconds = (sun_offset_minutes | int(0)) * 60 %}
-    {% set sign = '-' if seconds < 0 else '' %}
-    {% set absolute = seconds | abs %}
-    {{ sign ~ '%02d:%02d:%02d' | format(absolute // 3600, (absolute % 3600) // 60, absolute % 60) }}
   environmental_compensation: !input enable_environmental_compensation
   temperature_compensation: !input enable_temperature_compensation
   humidity_compensation: !input enable_humidity_compensation
@@ -785,9 +787,8 @@ variables:
   zone_4_name: !input zone_4_name
   notify_service: !input notify_service
   create_persistent_notifications: !input create_persistent_notifications
-  schedule_mode: !input schedule_mode
-  sun_offset_minutes: !input sun_offset_minutes
   minimum_interval_hours: !input minimum_interval_hours
+  use_minimum_interval: !input use_minimum_interval
 
 trigger_variables:
   _schedule_mode: !input schedule_mode
@@ -817,10 +818,14 @@ conditions:
       {% endif %}
   - condition: template
     value_template: >
-      {% set last = this.attributes.last_triggered %}
-      {{ last is none or
-         (as_timestamp(now()) - as_timestamp(last)) >=
-         ((minimum_interval_hours | float(24)) * 3600) }}
+      {% if not use_minimum_interval %}
+        true
+      {% else %}
+        {% set last = this.attributes.last_triggered %}
+        {{ last is none or
+           (as_timestamp(now()) - as_timestamp(last)) >=
+           ((minimum_interval_hours | float(24)) * 3600) }}
+      {% endif %}
 
 actions:
   - action: weather.get_forecasts
