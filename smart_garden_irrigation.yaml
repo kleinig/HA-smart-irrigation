@@ -607,7 +607,7 @@ blueprint:
 
         zone_2_enabled:
           name: Zone 2 enabled
-          default: true
+          default: false
           selector:
             boolean:
 
@@ -1123,28 +1123,9 @@ actions:
                 {{ wind_very_strong_multiplier }}
               {% endif %}
 
-        - variables:
-            environmental_duration: >
-              {% set t = temperature_multiplier | float(1) if temperature_compensation else 1 %}
-              {% set h = humidity_multiplier | float(1) if humidity_compensation else 1 %}
-              {% set w = wind_multiplier | float(1) if wind_compensation else 1 %}
-              {% set s = season_multiplier | float(1) if seasonal_compensation else 1 %}
-              {{ base_duration * t * h * w * s if environmental_compensation else base_duration }}
-            rain_reduction_for_zone: >
-              {% if critical %}
-                {{ [rain_reduction | float(0), critical_rain_max_reduction | float(50)] | min }}
-              {% else %}
-                {{ rain_reduction | float(0) }}
-              {% endif %}
-            final_duration: >
-              {{ [[environmental_duration | float(0) *
-                    (1 - (rain_reduction_for_zone | float(0)) / 100),
-                    maximum_duration | float(60)] | min, 0] | max | round(1) }}
-
         - if:
             - condition: template
-              value_template: >
-                {{ not critical and moisture >= target_moisture | float(40) }}
+              value_template: "{{ moisture >= target_moisture | float(40) }}"
           then:
             - if:
                 - condition: template
@@ -1156,14 +1137,62 @@ actions:
                     message: >
                       Zone skipped: soil moisture {{ moisture | round(1) }}% is at or above
                       the target of {{ target_moisture }}%.
-            - continue: "Moisture already at target."
+          else:
+            - variables:
+                environmental_duration: >
+                  {% set t = temperature_multiplier | float(1) if temperature_compensation else 1 %}
+                  {% set h = humidity_multiplier | float(1) if humidity_compensation else 1 %}
+                  {% set w = wind_multiplier | float(1) if wind_compensation else 1 %}
+                  {% set s = season_multiplier | float(1) if seasonal_compensation else 1 %}
+                  {{ base_duration * t * h * w * s if environmental_compensation else base_duration }}
+                rain_reduction_for_zone: >
+                  {% if critical %}
+                    {{ [rain_reduction | float(0), critical_rain_max_reduction | float(50)] | min }}
+                  {% else %}
+                    {{ rain_reduction | float(0) }}
+                  {% endif %}
+                final_duration: >
+                  {{ [[environmental_duration | float(0) *
+                        (1 - (rain_reduction_for_zone | float(0)) / 100),
+                        maximum_duration | float(60)] | min, 0] | max | round(1) }}
 
-        - if:
+            - if:
+                - condition: template
+                  value_template: >
+                    {{ not critical and
+                       rain_reduction_for_zone >= 100 }}
+              then:
+                - if:
+                    - condition: template
+                      value_template: "{{ create_persistent_notifications }}"
+                  then:
+                    - action: persistent_notification.create
+                      data:
+                        title: Smart Irrigation - {{ zone_name }}
+                        message: >
+                          Watering skipped due to forecast rain.
+                          Soil {{ moisture | round(1) }}%, target {{ target_moisture }}%.
+                          Forecast window {{ forecast_window_label }}:
+                          {{ forecast_rain_total }} mm total,
+                          max probability {{ forecast_max_probability }}%.
+                - condition: template
+                  value_template: "{{ final_duration | float(0) > 0 }}"
+
+            - if:
+                - condition: template
+                  value_template: "{{ final_duration | float(0) <= 0 and create_persistent_notifications }}"
+              then:
+                - action: persistent_notification.create
+                  data:
+                    title: Smart Irrigation - {{ zone_name }}
+                    message: >
+                      Zone skipped: calculated watering duration is 0 minutes.
+                      Soil {{ moisture | round(1) }}%, target {{ target_moisture }}%,
+                      forecast rain reduction {{ rain_reduction_for_zone | round(0) }}%.
+
             - condition: template
-              value_template: >
-                {{ not critical and
-                   rain_reduction_for_zone >= 100 }}
-          then:
+              value_template: "{{ final_duration | float(0) > 0 }}"
+
             - if:
                 - condition: template
                   value_template: "{{ create_persistent_notifications }}"
@@ -1172,95 +1201,64 @@ actions:
                   data:
                     title: Smart Irrigation - {{ zone_name }}
                     message: >
-                      Watering skipped due to forecast rain.
-                      Soil {{ moisture | round(1) }}%, target {{ target_moisture }}%.
-                      Forecast window {{ forecast_window_label }}:
-                      {{ forecast_rain_total }} mm total,
-                      max probability {{ forecast_max_probability }}%.
-            - condition: template
-              value_template: "{{ final_duration | float(0) > 0 }}"
+                      Starting irrigation.
+                      Soil {{ moisture | round(1) }}%, target {{ target_moisture }}%,
+                      deficit {{ deficit | round(1) }}%.
+                      Base {{ base_duration | round(1) }} min →
+                      environmental {{ environmental_duration | round(1) }} min →
+                      final {{ final_duration | round(1) }} min.
+                      Forecast {{ forecast_window_label }}:
+                      {{ forecast_rain_total }} mm,
+                      max probability {{ forecast_max_probability }}%,
+                      max amount {{ forecast_max_amount }} mm,
+                      rainy hours {{ rainy_forecast_hours }}.
+                      Temperature {{ current_temperature }}°C,
+                      humidity {{ current_humidity }}%.
+                      Rain reduction {{ rain_reduction_for_zone | round(0) }}%.
+                      Critical dryness: {{ 'yes' if critical else 'no' }}.
+                      Estimated water use: {{ (final_duration | float(0) * flow_rate | float(0)) | round(1) }} L.
 
-        - if:
-            - condition: template
-              value_template: "{{ final_duration | float(0) <= 0 and create_persistent_notifications }}"
-          then:
-            - action: persistent_notification.create
-              data:
-                title: Smart Irrigation - {{ zone_name }}
-                message: >
-                  Zone skipped: calculated watering duration is 0 minutes.
-                  Soil {{ moisture | round(1) }}%, target {{ target_moisture }}%,
-                  forecast rain reduction {{ rain_reduction_for_zone | round(0) }}%.
+            - action: homeassistant.turn_on
+              target:
+                entity_id: "{{ valve }}"
 
-        - condition: template
-          value_template: "{{ final_duration | float(0) > 0 }}"
-
-        - if:
-            - condition: template
-              value_template: "{{ create_persistent_notifications }}"
-          then:
-            - action: persistent_notification.create
-              data:
-                title: Smart Irrigation - {{ zone_name }}
-                message: >
-                  Starting irrigation.
-                  Soil {{ moisture | round(1) }}%, target {{ target_moisture }}%,
-                  deficit {{ deficit | round(1) }}%.
-                  Base {{ base_duration | round(1) }} min →
-                  environmental {{ environmental_duration | round(1) }} min →
-                  final {{ final_duration | round(1) }} min.
-                  Forecast {{ forecast_window_label }}:
-                  {{ forecast_rain_total }} mm,
-                  max probability {{ forecast_max_probability }}%,
-                  max amount {{ forecast_max_amount }} mm,
-                  rainy hours {{ rainy_forecast_hours }}.
-                  Temperature {{ current_temperature }}°C,
-                  humidity {{ current_humidity }}%.
-                  Rain reduction {{ rain_reduction_for_zone | round(0) }}%.
-                  Critical dryness: {{ 'yes' if critical else 'no' }}.
-                  Estimated water use: {{ (final_duration | float(0) * flow_rate | float(0)) | round(1) }} L.
-
-        - action: homeassistant.turn_on
-          target:
-            entity_id: "{{ valve }}"
-
-        - if:
-            - condition: template
-              value_template: >
-                {{ cycle_duration | float(0) > 0 and
-                   cycle_duration | float(0) < final_duration | float(0) }}
-          then:
-            - repeat:
-                while:
-                  - condition: template
-                    value_template: "{{ repeat.index * cycle_duration < final_duration }}"
-                sequence:
-                  - delay:
-                      minutes: >
-                        {{ [cycle_duration | float(0),
-                            final_duration | float(0) -
-                            ((repeat.index - 1) * cycle_duration | float(0))] | min }}
-                  - action: homeassistant.turn_off
-                    target:
-                      entity_id: "{{ valve }}"
-                  - if:
+            - if:
+                - condition: template
+                  value_template: >
+                    {{ cycle_duration | float(0) > 0 and
+                       cycle_duration | float(0) < final_duration | float(0) }}
+              then:
+                - repeat:
+                    while:
                       - condition: template
-                        value_template: >
-                          {{ (repeat.index * cycle_duration) < final_duration and
-                             soak_duration | float(0) > 0 }}
-                    then:
+                        value_template: "{{ repeat.index * cycle_duration < final_duration }}"
+                    sequence:
                       - delay:
-                          minutes: "{{ soak_duration | float(10) }}"
-                      - action: homeassistant.turn_on
+                          minutes: >
+                            {{ [cycle_duration | float(0),
+                                final_duration | float(0) -
+                                ((repeat.index - 1) * cycle_duration | float(0))] | min }}
+                      - action: homeassistant.turn_off
                         target:
                           entity_id: "{{ valve }}"
-          else:
-            - delay:
-                minutes: "{{ final_duration | float(0) }}"
+                      - if:
+                          - condition: template
+                            value_template: >
+                              {{ (repeat.index * cycle_duration) < final_duration and
+                                 soak_duration | float(0) > 0 }}
+                        then:
+                          - delay:
+                              minutes: "{{ soak_duration | float(10) }}"
+                          - action: homeassistant.turn_on
+                            target:
+                              entity_id: "{{ valve }}"
+              else:
+                - delay:
+                    minutes: "{{ final_duration | float(0) }}"
 
-        - action: homeassistant.turn_off
-          target:
-            entity_id: "{{ valve }}"
+            - action: homeassistant.turn_off
+              target:
+                entity_id: "{{ valve }}"
 
   - if:
       - condition: template
