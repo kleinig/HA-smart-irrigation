@@ -2,7 +2,7 @@ blueprint:
   name: Smart Garden Irrigation
   description: >
     Four-zone smart irrigation blueprint using soil-moisture deficit,
-    BOM hourly weather forecasts, temperature, humidity, seasonal adjustment,
+    Weather forecasts, temperature, humidity, seasonal adjustment,
     rain-aware watering, cycle-and-soak, optional pump/tank protection,
     sequential zones, and detailed persistent logging.
   domain: automation
@@ -191,7 +191,7 @@ blueprint:
         rainy_condition_reduction:
           name: Rainy-condition probability reduction
           description: >
-            Fallback reduction when BOM reports a rainy/showery condition and
+            Fallback reduction when the weather forecast reports a rainy/showery condition and
             probability is significant but precipitation amount is reported as 0 mm.
           default: 25
           selector:
