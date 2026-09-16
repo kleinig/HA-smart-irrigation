@@ -834,34 +834,112 @@ actions:
       forecast_data: >
         {{ weather_response.get(weather_entity, {}).get('forecast', []) }}
       forecast_window: >
-        {{ forecast_data[:(forecast_hours if forecast_type == 'hourly' else forecast_days) | int] }}
+        {% if forecast_type == 'hourly' %}
+          {{ forecast_data[:(forecast_hours | int(24))] }}
+        {% else %}
+          {{ forecast_data[:2] }}
+        {% endif %}
       forecast_window_label: >
-        {{ (forecast_hours | int(24)) ~ 'h' if forecast_type == 'hourly' else (forecast_days | int(7)) ~ 'd' }}
+        {{ (forecast_hours | int(24)) ~ 'h look-ahead' if forecast_type == 'hourly' else 'today + tomorrow' }}
 
+  # Rain is time-aware rather than simply summing the whole forecast.
+  # Hourly forecasts are weighted by how soon the rain is expected:
+  #   0-3h = 100%, 3-6h = 75%, 6-12h = 50%, 12-24h = 25%.
+  # Daily forecasts only consider today and tomorrow; later days do not
+  # reduce today's watering.
   - variables:
       forecast_rain_total: >
-        {{ forecast_window
-           | map(attribute='precipitation')
-           | map('float', 0)
-           | sum
-           | round(2) }}
+        {% set ns = namespace(total=0) %}
+        {% if forecast_type == 'hourly' %}
+          {% for item in forecast_window %}
+            {% set dt = as_datetime(item.datetime, default=none) %}
+            {% if dt is not none %}
+              {% set hours = (as_timestamp(dt) - as_timestamp(now())) / 3600 %}
+              {% if hours >= 0 and hours <= 3 %}
+                {% set weight = 1 %}
+              {% elif hours > 3 and hours <= 6 %}
+                {% set weight = 0.75 %}
+              {% elif hours > 6 and hours <= 12 %}
+                {% set weight = 0.5 %}
+              {% elif hours > 12 and hours <= 24 %}
+                {% set weight = 0.25 %}
+              {% else %}
+                {% set weight = 0 %}
+              {% endif %}
+              {% set ns.total = ns.total + (item.precipitation | float(0) * weight) %}
+            {% endif %}
+          {% endfor %}
+        {% else %}
+          {% for item in forecast_window %}
+            {% set dt = as_datetime(item.datetime, default=none) %}
+            {% if dt is not none %}
+              {% set days = ((as_timestamp(dt) - as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0))) / 86400) %}
+              {% if days >= 0 and days < 1 %}
+                {% set weight = 1 %}
+              {% elif days >= 1 and days < 2 %}
+                {% set weight = 0.5 %}
+              {% else %}
+                {% set weight = 0 %}
+              {% endif %}
+              {% set ns.total = ns.total + (item.precipitation | float(0) * weight) %}
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+        {{ ns.total | round(2) }}
       forecast_max_probability: >
-        {{ forecast_window
-           | map(attribute='precipitation_probability')
-           | map('float', 0)
-           | max
-           | default(0) }}
+        {% set ns = namespace(max=0) %}
+        {% for item in forecast_window %}
+          {% set dt = as_datetime(item.datetime, default=none) %}
+          {% if dt is not none %}
+            {% if forecast_type == 'hourly' %}
+              {% set hours = (as_timestamp(dt) - as_timestamp(now())) / 3600 %}
+              {% set relevant = hours >= 0 and hours <= 24 %}
+            {% else %}
+              {% set days = ((as_timestamp(dt) - as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0))) / 86400) %}
+              {% set relevant = days >= 0 and days < 2 %}
+            {% endif %}
+            {% if relevant %}
+              {% set ns.max = [ns.max, item.precipitation_probability | float(0)] | max %}
+            {% endif %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.max | round(0) }}
       forecast_max_amount: >
-        {{ forecast_window
-           | map(attribute='precipitation')
-           | map('float', 0)
-           | max
-           | default(0) }}
+        {% set ns = namespace(max=0) %}
+        {% for item in forecast_window %}
+          {% set dt = as_datetime(item.datetime, default=none) %}
+          {% if dt is not none %}
+            {% if forecast_type == 'hourly' %}
+              {% set hours = (as_timestamp(dt) - as_timestamp(now())) / 3600 %}
+              {% set relevant = hours >= 0 and hours <= 24 %}
+            {% else %}
+              {% set days = ((as_timestamp(dt) - as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0))) / 86400) %}
+              {% set relevant = days >= 0 and days < 2 %}
+            {% endif %}
+            {% if relevant %}
+              {% set ns.max = [ns.max, item.precipitation | float(0)] | max %}
+            {% endif %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.max | round(2) }}
       rainy_forecast_hours: >
-        {{ forecast_window
-           | selectattr('condition', 'in', ['rainy', 'pouring', 'lightning-rainy', 'hail'])
-           | list
-           | length }}
+        {% set ns = namespace(count=0) %}
+        {% for item in forecast_window %}
+          {% set dt = as_datetime(item.datetime, default=none) %}
+          {% if dt is not none %}
+            {% if forecast_type == 'hourly' %}
+              {% set hours = (as_timestamp(dt) - as_timestamp(now())) / 3600 %}
+              {% set relevant = hours >= 0 and hours <= 24 %}
+            {% else %}
+              {% set days = ((as_timestamp(dt) - as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0))) / 86400) %}
+              {% set relevant = days >= 0 and days < 2 %}
+            {% endif %}
+            {% if relevant and item.condition in ['rainy', 'pouring', 'lightning-rainy', 'hail'] %}
+              {% set ns.count = ns.count + 1 %}
+            {% endif %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.count }}
 
   - variables:
       rain_reduction: >
@@ -903,7 +981,7 @@ actions:
 
   - variables:
       active_zones: >
-        {{ zones | selectattr('enabled', 'eq', 'True') | list }}
+        {{ zones | selectattr('enabled', 'eq', true) | list }}
 
   - if:
       - condition: template
