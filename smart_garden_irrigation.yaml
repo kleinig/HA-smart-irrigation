@@ -1218,47 +1218,47 @@ actions:
                       Critical dryness: {{ 'yes' if critical else 'no' }}.
                       Estimated water use: {{ (final_duration | float(0) * flow_rate | float(0)) | round(1) }} L.
 
-            - action: homeassistant.turn_on
-              target:
-                entity_id: "{{ valve }}"
-
-            - if:
-                - condition: template
-                  value_template: >
-                    {{ cycle_duration | float(0) > 0 and
-                       cycle_duration | float(0) < final_duration | float(0) }}
-              then:
-                - repeat:
-                    while:
-                      - condition: template
-                        value_template: "{{ repeat.index * cycle_duration < final_duration }}"
-                    sequence:
-                      - delay:
-                          minutes: >
-                            {{ [cycle_duration | float(0),
-                                final_duration | float(0) -
-                                ((repeat.index - 1) * cycle_duration | float(0))] | min }}
-                      - action: homeassistant.turn_off
-                        target:
-                          entity_id: "{{ valve }}"
-                      - if:
-                          - condition: template
-                            value_template: >
-                              {{ (repeat.index * cycle_duration) < final_duration and
-                                 soak_duration | float(0) > 0 }}
-                        then:
-                          - delay:
-                              minutes: "{{ soak_duration | float(10) }}"
-                          - action: homeassistant.turn_on
-                            target:
-                              entity_id: "{{ valve }}"
-              else:
-                - delay:
-                    minutes: "{{ final_duration | float(0) }}"
-
-            - action: homeassistant.turn_off
-              target:
-                entity_id: "{{ valve }}"
+              - action: homeassistant.turn_on
+                target:
+                  entity_id: "{{ valve }}"
+  
+              - if:
+                  - condition: template
+                    value_template: >
+                      {{ cycle_duration | float(0) > 0 and
+                         cycle_duration | float(0) < final_duration | float(0) }}
+                then:
+                  - repeat:
+                      while:
+                        - condition: template
+                          value_template: "{{ repeat.index * cycle_duration < final_duration }}"
+                      sequence:
+                        - delay:
+                            minutes: >
+                              {{ [cycle_duration | float(0),
+                                  final_duration | float(0) -
+                                  ((repeat.index - 1) * cycle_duration | float(0))] | min }}
+                        - action: homeassistant.turn_off
+                          target:
+                            entity_id: "{{ valve }}"
+                        - if:
+                            - condition: template
+                              value_template: >
+                                {{ (repeat.index * cycle_duration) < final_duration and
+                                   soak_duration | float(0) > 0 }}
+                          then:
+                            - delay:
+                                minutes: "{{ soak_duration | float(10) }}"
+                            - action: homeassistant.turn_on
+                              target:
+                                entity_id: "{{ valve }}"
+                else:
+                  - delay:
+                      minutes: "{{ final_duration | float(0) }}"
+  
+              - action: homeassistant.turn_off
+                target:
+                  entity_id: "{{ valve }}"
 
   - if:
       - condition: template
