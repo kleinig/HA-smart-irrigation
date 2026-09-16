@@ -1,10 +1,11 @@
 blueprint:
   name: Smart Garden Irrigation
   description: >
-    Four-zone smart irrigation blueprint using soil-moisture deficit,
-    Weather forecasts, temperature, humidity, seasonal adjustment,
+    Four-zone smart irrigation blueprint using optional soil-moisture deficit,
+    weather forecasts, temperature, humidity, seasonal adjustment,
     rain-aware watering, cycle-and-soak, optional pump/tank protection,
-    sequential zones, and detailed persistent logging.
+    sequential zones, and detailed persistent logging. Zones without a soil
+    moisture sensor use their configured minimum watering duration.
   domain: automation
 
   input:
@@ -593,7 +594,8 @@ blueprint:
                   - valve
 
         zone_1_moisture:
-          name: Zone 1 soil moisture
+          name: Zone 1 soil moisture (optional)
+          default: null
           selector:
             entity:
               filter:
@@ -623,8 +625,8 @@ blueprint:
                   - valve
 
         zone_2_moisture:
-          name: Zone 2 soil moisture
-          default: []
+          name: Zone 2 soil moisture (optional)
+          default: null
           selector:
             entity:
               filter:
@@ -654,8 +656,8 @@ blueprint:
                   - valve
 
         zone_3_moisture:
-          name: Zone 3 soil moisture
-          default: []
+          name: Zone 3 soil moisture (optional)
+          default: null
           selector:
             entity:
               filter:
@@ -685,8 +687,8 @@ blueprint:
                   - valve
 
         zone_4_moisture:
-          name: Zone 4 soil moisture
-          default: []
+          name: Zone 4 soil moisture (optional)
+          default: null
           selector:
             entity:
               filter:
@@ -1041,10 +1043,11 @@ actions:
             zone_name: "{{ repeat.item.name }}"
             valve: "{{ repeat.item.valve }}"
             moisture_entity: "{{ repeat.item.moisture }}"
-            moisture: "{{ states(repeat.item.moisture) | float(none) }}"
+            has_moisture_sensor: "{{ repeat.item.moisture is string and repeat.item.moisture | trim != '' }}"
+            moisture: "{{ states(repeat.item.moisture) | float(none) if repeat.item.moisture is string and repeat.item.moisture | trim != '' else none }}"
         - if:
             - condition: template
-              value_template: "{{ moisture is none }}"
+              value_template: "{{ has_moisture_sensor and moisture is none }}"
           then:
             - if:
                 - condition: template
@@ -1060,8 +1063,8 @@ actions:
               value_template: "{{ moisture is not none }}"
 
         - variables:
-            deficit: "{{ [target_moisture | float(40) - moisture, 0] | max }}"
-            critical: "{{ moisture < critical_moisture | float(20) }}"
+            deficit: "{{ [target_moisture | float(40) - moisture, 0] | max if moisture is not none else 0 }}"
+            critical: "{{ moisture < critical_moisture | float(20) if moisture is not none else false }}"
             base_duration: >
               {{ [minimum_duration | float(5) +
                   (deficit * minutes_per_percent_deficit | float(1)),
@@ -1125,7 +1128,7 @@ actions:
 
         - if:
             - condition: template
-              value_template: "{{ moisture >= target_moisture | float(40) }}"
+              value_template: "{{ moisture is not none and moisture >= target_moisture | float(40) }}"
           then:
             - if:
                 - condition: template
