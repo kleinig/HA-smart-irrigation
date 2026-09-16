@@ -785,6 +785,9 @@ variables:
   zone_4_name: !input zone_4_name
   notify_service: !input notify_service
   create_persistent_notifications: !input create_persistent_notifications
+  schedule_mode: !input schedule_mode
+  sun_offset_minutes: !input sun_offset_minutes
+  minimum_interval_hours: !input minimum_interval_hours
 
 trigger_variables:
   _schedule_mode: !input schedule_mode
