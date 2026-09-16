@@ -1137,9 +1137,26 @@ actions:
                 {{ rain_reduction | float(0) }}
               {% endif %}
             final_duration: >
-              {{ [environmental_duration *
-                  (1 - rain_reduction_for_zone / 100),
-                  maximum_duration | float(60)] | min | max(0) | round(1) }}
+              {{ [[environmental_duration | float(0) *
+                    (1 - (rain_reduction_for_zone | float(0)) / 100),
+                    maximum_duration | float(60)] | min, 0] | max | round(1) }}
+
+        - if:
+            - condition: template
+              value_template: >
+                {{ not critical and moisture >= target_moisture | float(40) }}
+          then:
+            - if:
+                - condition: template
+                  value_template: "{{ create_persistent_notifications }}"
+              then:
+                - action: persistent_notification.create
+                  data:
+                    title: Smart Irrigation - {{ zone_name }}
+                    message: >
+                      Zone skipped: soil moisture {{ moisture | round(1) }}% is at or above
+                      the target of {{ target_moisture }}%.
+            - continue: "Moisture already at target."
 
         - if:
             - condition: template
