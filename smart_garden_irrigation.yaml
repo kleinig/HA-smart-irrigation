@@ -796,6 +796,7 @@ variables:
 
 trigger_variables:
   _schedule_mode: !input schedule_mode
+  _sun_offset_minutes: !input sun_offset_minutes
 
 triggers:
   - trigger: time
@@ -810,13 +811,13 @@ triggers:
     event: sunrise
     id: sun_event
     enabled: >-
-      {{ _schedule_mode == 'sunrise' and (sun_offset_minutes | int(0)) >= 0 }}
+      {{ _schedule_mode == 'sunrise' and (_sun_offset_minutes | int(0)) >= 0 }}
 
   - trigger: sun
     event: sunset
     id: sun_event
     enabled: >-
-      {{ _schedule_mode == 'sunset' and (sun_offset_minutes | int(0)) >= 0 }}
+      {{ _schedule_mode == 'sunset' and (_sun_offset_minutes | int(0)) >= 0 }}
 
   # A negative sunrise/sunset offset must start before the sun event. Home
   # Assistant cannot template a dynamic negative sun-trigger offset, so only
@@ -826,7 +827,7 @@ triggers:
     minutes: "/1"
     id: negative_sun_offset
     enabled: >-
-      {{ _schedule_mode in ['sunrise', 'sunset'] and (sun_offset_minutes | int(0)) < 0 }}
+      {{ _schedule_mode in ['sunrise', 'sunset'] and (_sun_offset_minutes | int(0)) < 0 }}
 
 conditions:
   - condition: template
