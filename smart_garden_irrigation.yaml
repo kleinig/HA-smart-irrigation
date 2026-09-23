@@ -6,6 +6,8 @@ blueprint:
     rain-aware watering, cycle-and-soak, optional pump/tank protection,
     sequential zones, and detailed persistent logging. Zones without a soil
     moisture sensor use their configured minimum watering duration.
+    Fixed schedules use a time trigger; sunrise/sunset schedules use direct
+    sun-event triggers whenever the offset is zero or positive.
   domain: automation
 
   input:
@@ -798,24 +800,45 @@ trigger_variables:
 triggers:
   - trigger: time
     at: !input start_time
+    id: fixed_time
     enabled: "{{ _schedule_mode == 'fixed' }}"
 
-  # Home Assistant requires a literal HH:MM[:SS] value for a sun trigger's
-  # offset, so a slider cannot be templated directly into that field.
-  # Instead, check once per minute and calculate the selected offset from the
-  # sun integration. This preserves the slider while remaining saveable.
+  # For sunrise/sunset with zero or positive offsets, trigger exactly when the
+  # sun event occurs and delay for the configured positive offset. This avoids
+  # polling Home Assistant every minute.
+  - trigger: sun
+    event: sunrise
+    id: sun_event
+    enabled: >-
+      {{ _schedule_mode == 'sunrise' and (sun_offset_minutes | int(0)) >= 0 }}
+
+  - trigger: sun
+    event: sunset
+    id: sun_event
+    enabled: >-
+      {{ _schedule_mode == 'sunset' and (sun_offset_minutes | int(0)) >= 0 }}
+
+  # A negative sunrise/sunset offset must start before the sun event. Home
+  # Assistant cannot template a dynamic negative sun-trigger offset, so only
+  # this case uses a once-per-minute trigger. Normal sunrise/sunset operation
+  # does not poll.
   - trigger: time_pattern
     minutes: "/1"
-    enabled: "{{ _schedule_mode in ['sunrise', 'sunset'] }}"
+    id: negative_sun_offset
+    enabled: >-
+      {{ _schedule_mode in ['sunrise', 'sunset'] and (sun_offset_minutes | int(0)) < 0 }}
 
 conditions:
   - condition: template
     value_template: >-
       {% if schedule_mode == 'fixed' %}
         true
+      {% elif trigger.id == 'sun_event' %}
+        true
       {% else %}
-        {% set event_ts = as_timestamp(state_attr('sun.sun', 'next_rising' if schedule_mode == 'sunrise' else 'next_setting')) %}
-        {% set target_ts = event_ts + (sun_offset_minutes | int(0) * 60) %}
+        {% set next_event = as_datetime(state_attr('sun.sun', 'next_rising' if schedule_mode == 'sunrise' else 'next_setting')) %}
+        {% set event_time = next_event - timedelta(days=1) %}
+        {% set target_ts = as_timestamp(event_time) + (sun_offset_minutes | int(0) * 60) %}
         {{ now().timestamp() >= target_ts and now().timestamp() < target_ts + 60 }}
       {% endif %}
   - condition: template
@@ -830,6 +853,16 @@ conditions:
       {% endif %}
 
 actions:
+  # Positive sunrise/sunset offsets are handled as a delay from the exact sun
+  # event. Fixed schedules and zero offsets continue immediately.
+  - if:
+      - condition: template
+        value_template: >-
+          {{ trigger.id == 'sun_event' and (sun_offset_minutes | int(0)) > 0 }}
+    then:
+      - delay:
+          minutes: "{{ sun_offset_minutes | int(0) }}"
+
   - action: weather.get_forecasts
     target:
       entity_id: !input weather_entity
