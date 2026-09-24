@@ -4,8 +4,8 @@ blueprint:
     Four-zone smart irrigation blueprint using optional soil-moisture deficit,
     weather forecasts, temperature, humidity, seasonal adjustment,
     rain-aware watering, cycle-and-soak, optional pump/tank protection,
-    sequential zones, and detailed persistent logging. Zones without a soil
-    moisture sensor use their configured minimum watering duration.
+    sequential zones, and optional phone notifications, persistent logging, and detailed diagnostics.
+    Zones without a soil moisture sensor use their configured minimum watering duration.
     Fixed schedules use a time trigger; sunrise/sunset schedules use direct
     sun-event triggers whenever the offset is zero or positive.
   domain: automation
@@ -709,7 +709,7 @@ blueprint:
       input:
         notify_service:
           name: Notification service
-          description: Optional notify service. Leave blank to use persistent notifications only.
+          description: Enter a notify service name (for example mobile_app_cph2583). Leave blank to disable phone notifications. The blueprint also accepts the full notify.entity_id form.
           default: ""
           selector:
             text:
@@ -1028,14 +1028,32 @@ actions:
       - condition: template
         value_template: "{{ active_zones | length == 0 }}"
     then:
-      - if:
-          - condition: template
-            value_template: "{{ create_persistent_notifications }}"
-        then:
-          - action: persistent_notification.create
-            data:
-              title: Smart Irrigation
-              message: "Irrigation skipped: no zones are enabled."
+      - choose:
+        - sequence:
+            - if:
+                - condition: template
+                  value_template: >-
+                    {{ notify_service is string and notify_service | trim != '' }}
+              then:
+                - action: notify.send_message
+                  target:
+                    entity_id: >-
+                      {{ 'notify.' ~ notify_service if not notify_service.startswith('notify.') else notify_service }}
+                  data:
+                    title: Smart Irrigation
+
+                    message: "Irrigation skipped: no zones are enabled."
+
+            - if:
+                - condition: template
+                  value_template: >-
+                    {{ create_persistent_notifications }}
+              then:
+                - action: persistent_notification.create
+                  data:
+                    title: Smart Irrigation
+
+                    message: "Irrigation skipped: no zones are enabled."
 
       - stop: "No enabled irrigation zones."
 
@@ -1047,16 +1065,40 @@ actions:
              states(tank_level_sensor) not in ['unknown', 'unavailable'] and
              states(tank_level_sensor) | float(0) < minimum_tank_level | float(20) }}
     then:
-      - if:
-          - condition: template
-            value_template: "{{ create_persistent_notifications }}"
-        then:
-          - action: persistent_notification.create
-            data:
-              title: Smart Irrigation
-              message: >
-                Irrigation skipped: tank level {{ states(tank_level_sensor) }}%
-                is below the minimum {{ minimum_tank_level }}%.
+      - choose:
+        - sequence:
+            - if:
+                - condition: template
+                  value_template: >-
+                    {{ notify_service is string and notify_service | trim != '' }}
+              then:
+                - action: notify.send_message
+                  target:
+                    entity_id: >-
+                      {{ 'notify.' ~ notify_service if not notify_service.startswith('notify.') else notify_service }}
+                  data:
+                    title: Smart Irrigation
+
+                    message: >
+
+                      Irrigation skipped: tank level {{ states(tank_level_sensor) }}%
+
+                      is below the minimum {{ minimum_tank_level }}%.
+
+            - if:
+                - condition: template
+                  value_template: >-
+                    {{ create_persistent_notifications }}
+              then:
+                - action: persistent_notification.create
+                  data:
+                    title: Smart Irrigation
+
+                    message: >
+
+                      Irrigation skipped: tank level {{ states(tank_level_sensor) }}%
+
+                      is below the minimum {{ minimum_tank_level }}%.
 
       - stop: "Tank level too low."
 
@@ -1083,16 +1125,41 @@ actions:
             - condition: template
               value_template: "{{ has_moisture_sensor and moisture is none }}"
           then:
-            - if:
-                - condition: template
-                  value_template: "{{ create_persistent_notifications }}"
-              then:
-                - action: persistent_notification.create
-                  data:
-                    title: Smart Irrigation - {{ zone_name }}
-                    message: >
-                      Zone skipped: soil moisture sensor {{ moisture_entity }}
-                      is unavailable or invalid.
+            - choose:
+              - sequence:
+                  - if:
+                      - condition: template
+                        value_template: >-
+                          {{ notify_service is string and notify_service | trim != '' }}
+                    then:
+                      - action: notify.send_message
+                        target:
+                          entity_id: >-
+                            {{ 'notify.' ~ notify_service if not notify_service.startswith('notify.') else notify_service }}
+                        data:
+                          title: Smart Irrigation - {{ zone_name }}
+
+                          message: >
+
+                            Zone skipped: soil moisture sensor {{ moisture_entity }}
+
+                            is unavailable or invalid.
+
+                  - if:
+                      - condition: template
+                        value_template: >-
+                          {{ create_persistent_notifications }}
+                    then:
+                      - action: persistent_notification.create
+                        data:
+                          title: Smart Irrigation - {{ zone_name }}
+
+                          message: >
+
+                            Zone skipped: soil moisture sensor {{ moisture_entity }}
+
+                            is unavailable or invalid.
+
             - condition: template
               value_template: "{{ moisture is not none }}"
 
@@ -1164,16 +1231,41 @@ actions:
             - condition: template
               value_template: "{{ moisture is not none and moisture >= target_moisture | float(40) }}"
           then:
-            - if:
-                - condition: template
-                  value_template: "{{ create_persistent_notifications }}"
-              then:
-                - action: persistent_notification.create
-                  data:
-                    title: Smart Irrigation - {{ zone_name }}
-                    message: >
-                      Zone skipped: soil moisture {{ moisture | round(1) }}% is at or above
-                      the target of {{ target_moisture }}%.
+            - choose:
+              - sequence:
+                  - if:
+                      - condition: template
+                        value_template: >-
+                          {{ notify_service is string and notify_service | trim != '' }}
+                    then:
+                      - action: notify.send_message
+                        target:
+                          entity_id: >-
+                            {{ 'notify.' ~ notify_service if not notify_service.startswith('notify.') else notify_service }}
+                        data:
+                          title: Smart Irrigation - {{ zone_name }}
+
+                          message: >
+
+                            Zone skipped: soil moisture {{ moisture | round(1) }}% is at or above
+
+                            the target of {{ target_moisture }}%.
+
+                  - if:
+                      - condition: template
+                        value_template: >-
+                          {{ create_persistent_notifications }}
+                    then:
+                      - action: persistent_notification.create
+                        data:
+                          title: Smart Irrigation - {{ zone_name }}
+
+                          message: >
+
+                            Zone skipped: soil moisture {{ moisture | round(1) }}% is at or above
+
+                            the target of {{ target_moisture }}%.
+
           else:
             - variables:
                 environmental_duration: >
@@ -1199,61 +1291,191 @@ actions:
                     {{ not critical and
                        rain_reduction_for_zone >= 100 }}
               then:
-                - if:
-                    - condition: template
-                      value_template: "{{ create_persistent_notifications }}"
-                  then:
-                    - action: persistent_notification.create
-                      data:
-                        title: Smart Irrigation - {{ zone_name }}
-                        message: >
-                          Watering skipped due to forecast rain.
-                          Soil {{ moisture | round(1) }}%, target {{ target_moisture }}%.
-                          Forecast window {{ forecast_window_label }}:
-                          {{ forecast_rain_total }} mm total,
-                          max probability {{ forecast_max_probability }}%.
+                - choose:
+                  - sequence:
+                      - if:
+                          - condition: template
+                            value_template: >-
+                              {{ notify_service is string and notify_service | trim != '' }}
+                        then:
+                          - action: notify.send_message
+                            target:
+                              entity_id: >-
+                                {{ 'notify.' ~ notify_service if not notify_service.startswith('notify.') else notify_service }}
+                            data:
+                              title: Smart Irrigation - {{ zone_name }}
+
+                              message: >
+
+                                Watering skipped due to forecast rain.
+
+                                Soil {{ moisture | round(1) }}%, target {{ target_moisture }}%.
+
+                                Forecast window {{ forecast_window_label }}:
+
+                                {{ forecast_rain_total }} mm total,
+
+                                max probability {{ forecast_max_probability }}%.
+
+                      - if:
+                          - condition: template
+                            value_template: >-
+                              {{ create_persistent_notifications }}
+                        then:
+                          - action: persistent_notification.create
+                            data:
+                              title: Smart Irrigation - {{ zone_name }}
+
+                              message: >
+
+                                Watering skipped due to forecast rain.
+
+                                Soil {{ moisture | round(1) }}%, target {{ target_moisture }}%.
+
+                                Forecast window {{ forecast_window_label }}:
+
+                                {{ forecast_rain_total }} mm total,
+
+                                max probability {{ forecast_max_probability }}%.
+
                 - condition: template
                   value_template: "{{ final_duration | float(0) > 0 }}"
 
-            - if:
-                - condition: template
-                  value_template: "{{ final_duration | float(0) <= 0 and create_persistent_notifications }}"
-              then:
-                - action: persistent_notification.create
-                  data:
-                    title: Smart Irrigation - {{ zone_name }}
-                    message: >
-                      Zone skipped: calculated watering duration is 0 minutes.
-                      Soil {{ moisture | round(1) }}%, target {{ target_moisture }}%,
-                      forecast rain reduction {{ rain_reduction_for_zone | round(0) }}%.
+            - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ final_duration | float(0) <= 0 }}"
+                sequence:
+                  - if:
+                      - condition: template
+                        value_template: >-
+                          {{ notify_service is string and notify_service | trim != '' }}
+                    then:
+                      - action: notify.send_message
+                        target:
+                          entity_id: >-
+                            {{ 'notify.' ~ notify_service if not notify_service.startswith('notify.') else notify_service }}
+                        data:
+                          title: Smart Irrigation - {{ zone_name }}
+
+                          message: >
+
+                            Zone skipped: calculated watering duration is 0 minutes.
+
+                            Soil {{ moisture | round(1) }}%, target {{ target_moisture }}%,
+
+                            forecast rain reduction {{ rain_reduction_for_zone | round(0) }}%.
+
+                  - if:
+                      - condition: template
+                        value_template: >-
+                          {{ create_persistent_notifications }}
+                    then:
+                      - action: persistent_notification.create
+                        data:
+                          title: Smart Irrigation - {{ zone_name }}
+
+                          message: >
+
+                            Zone skipped: calculated watering duration is 0 minutes.
+
+                            Soil {{ moisture | round(1) }}%, target {{ target_moisture }}%,
+
+                            forecast rain reduction {{ rain_reduction_for_zone | round(0) }}%.
 
             - condition: template
               value_template: "{{ final_duration | float(0) > 0 }}"
 
-            - if:
-                - condition: template
-                  value_template: "{{ create_persistent_notifications }}"
-              then:
-                - action: persistent_notification.create
-                  data:
-                    title: Smart Irrigation - {{ zone_name }}
-                    message: >
-                      Starting irrigation.
-                      Soil {{ moisture | round(1) }}%, target {{ target_moisture }}%,
-                      deficit {{ deficit | round(1) }}%.
-                      Base {{ base_duration | round(1) }} min →
-                      environmental {{ environmental_duration | round(1) }} min →
-                      final {{ final_duration | round(1) }} min.
-                      Forecast {{ forecast_window_label }}:
-                      {{ forecast_rain_total }} mm,
-                      max probability {{ forecast_max_probability }}%,
-                      max amount {{ forecast_max_amount }} mm,
-                      rainy hours {{ rainy_forecast_hours }}.
-                      Temperature {{ current_temperature }}°C,
-                      humidity {{ current_humidity }}%.
-                      Rain reduction {{ rain_reduction_for_zone | round(0) }}%.
-                      Critical dryness: {{ 'yes' if critical else 'no' }}.
-                      Estimated water use: {{ (final_duration | float(0) * flow_rate | float(0)) | round(1) }} L.
+            - choose:
+              - sequence:
+                  - if:
+                      - condition: template
+                        value_template: >-
+                          {{ notify_service is string and notify_service | trim != '' }}
+                    then:
+                      - action: notify.send_message
+                        target:
+                          entity_id: >-
+                            {{ 'notify.' ~ notify_service if not notify_service.startswith('notify.') else notify_service }}
+                        data:
+                          title: Smart Irrigation - {{ zone_name }}
+
+                          message: >
+
+                            Starting irrigation.
+
+                            Soil {{ moisture | round(1) }}%, target {{ target_moisture }}%,
+
+                            deficit {{ deficit | round(1) }}%.
+
+                            Base {{ base_duration | round(1) }} min →
+
+                            environmental {{ environmental_duration | round(1) }} min →
+
+                            final {{ final_duration | round(1) }} min.
+
+                            Forecast {{ forecast_window_label }}:
+
+                            {{ forecast_rain_total }} mm,
+
+                            max probability {{ forecast_max_probability }}%,
+
+                            max amount {{ forecast_max_amount }} mm,
+
+                            rainy hours {{ rainy_forecast_hours }}.
+
+                            Temperature {{ current_temperature }}°C,
+
+                            humidity {{ current_humidity }}%.
+
+                            Rain reduction {{ rain_reduction_for_zone | round(0) }}%.
+
+                            Critical dryness: {{ 'yes' if critical else 'no' }}.
+
+                            Estimated water use: {{ (final_duration | float(0) * flow_rate | float(0)) | round(1) }} L.
+
+                  - if:
+                      - condition: template
+                        value_template: >-
+                          {{ create_persistent_notifications }}
+                    then:
+                      - action: persistent_notification.create
+                        data:
+                          title: Smart Irrigation - {{ zone_name }}
+
+                          message: >
+
+                            Starting irrigation.
+
+                            Soil {{ moisture | round(1) }}%, target {{ target_moisture }}%,
+
+                            deficit {{ deficit | round(1) }}%.
+
+                            Base {{ base_duration | round(1) }} min →
+
+                            environmental {{ environmental_duration | round(1) }} min →
+
+                            final {{ final_duration | round(1) }} min.
+
+                            Forecast {{ forecast_window_label }}:
+
+                            {{ forecast_rain_total }} mm,
+
+                            max probability {{ forecast_max_probability }}%,
+
+                            max amount {{ forecast_max_amount }} mm,
+
+                            rainy hours {{ rainy_forecast_hours }}.
+
+                            Temperature {{ current_temperature }}°C,
+
+                            humidity {{ current_humidity }}%.
+
+                            Rain reduction {{ rain_reduction_for_zone | round(0) }}%.
+
+                            Critical dryness: {{ 'yes' if critical else 'no' }}.
+
+                            Estimated water use: {{ (final_duration | float(0) * flow_rate | float(0)) | round(1) }} L.
 
             - action: homeassistant.turn_on
               target:
@@ -1305,15 +1527,46 @@ actions:
         target:
           entity_id: "{{ pump_entity }}"
 
-  - if:
-      - condition: template
-        value_template: "{{ create_persistent_notifications }}"
-    then:
-      - action: persistent_notification.create
-        data:
-          title: Smart Irrigation - Complete
-          message: >
-            Irrigation cycle completed.
-            Forecast window: {{ forecast_window_label }},
-            forecast rainfall: {{ forecast_rain_total }} mm,
-            maximum rain probability: {{ forecast_max_probability }}%.
+  - choose:
+    - sequence:
+        - if:
+            - condition: template
+              value_template: >-
+                {{ notify_service is string and notify_service | trim != '' }}
+          then:
+            - action: notify.send_message
+              target:
+                entity_id: >-
+                  {{ 'notify.' ~ notify_service if not notify_service.startswith('notify.') else notify_service }}
+              data:
+                title: Smart Irrigation - Complete
+
+                message: >
+
+                  Irrigation cycle completed.
+
+                  Forecast window: {{ forecast_window_label }},
+
+                  forecast rainfall: {{ forecast_rain_total }} mm,
+
+                  maximum rain probability: {{ forecast_max_probability }}%.
+
+        - if:
+            - condition: template
+              value_template: >-
+                {{ create_persistent_notifications }}
+          then:
+            - action: persistent_notification.create
+              data:
+                title: Smart Irrigation - Complete
+
+                message: >
+
+                  Irrigation cycle completed.
+
+                  Forecast window: {{ forecast_window_label }},
+
+                  forecast rainfall: {{ forecast_rain_total }} mm,
+
+                  maximum rain probability: {{ forecast_max_probability }}%.
+
