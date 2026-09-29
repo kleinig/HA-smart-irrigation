@@ -585,6 +585,15 @@ blueprint:
           selector:
             boolean:
 
+        zone_1_control:
+          name: Zone 1 automatic control
+          description: Optional input_boolean used to allow or prevent automatic watering for this zone. Leave empty to always allow the zone. Turning it off during watering stops the zone at the next control check.
+          default: []
+          selector:
+            entity:
+              filter:
+                domain: input_boolean
+
         zone_1_valve:
           name: Zone 1 valve
           selector:
@@ -614,6 +623,15 @@ blueprint:
           default: false
           selector:
             boolean:
+
+        zone_2_control:
+          name: Zone 2 automatic control
+          description: Optional input_boolean used to allow or prevent automatic watering for this zone. Leave empty to always allow the zone. Turning it off during watering stops the zone at the next control check.
+          default: []
+          selector:
+            entity:
+              filter:
+                domain: input_boolean
 
         zone_2_valve:
           name: Zone 2 valve
@@ -646,6 +664,15 @@ blueprint:
           selector:
             boolean:
 
+        zone_3_control:
+          name: Zone 3 automatic control
+          description: Optional input_boolean used to allow or prevent automatic watering for this zone. Leave empty to always allow the zone. Turning it off during watering stops the zone at the next control check.
+          default: []
+          selector:
+            entity:
+              filter:
+                domain: input_boolean
+
         zone_3_valve:
           name: Zone 3 valve
           default: []
@@ -676,6 +703,15 @@ blueprint:
           default: false
           selector:
             boolean:
+
+        zone_4_control:
+          name: Zone 4 automatic control
+          description: Optional input_boolean used to allow or prevent automatic watering for this zone. Leave empty to always allow the zone. Turning it off during watering stops the zone at the next control check.
+          default: []
+          selector:
+            entity:
+              filter:
+                domain: input_boolean
 
         zone_4_valve:
           name: Zone 4 valve
@@ -774,18 +810,22 @@ variables:
   tank_level_sensor: !input tank_level_sensor
   minimum_tank_level: !input minimum_tank_level
   zone_1_enabled: !input zone_1_enabled
+  zone_1_control: !input zone_1_control
   zone_1_valve: !input zone_1_valve
   zone_1_moisture: !input zone_1_moisture
   zone_1_name: !input zone_1_name
   zone_2_enabled: !input zone_2_enabled
+  zone_2_control: !input zone_2_control
   zone_2_valve: !input zone_2_valve
   zone_2_moisture: !input zone_2_moisture
   zone_2_name: !input zone_2_name
   zone_3_enabled: !input zone_3_enabled
+  zone_3_control: !input zone_3_control
   zone_3_valve: !input zone_3_valve
   zone_3_moisture: !input zone_3_moisture
   zone_3_name: !input zone_3_name
   zone_4_enabled: !input zone_4_enabled
+  zone_4_control: !input zone_4_control
   zone_4_valve: !input zone_4_valve
   zone_4_moisture: !input zone_4_moisture
   zone_4_name: !input zone_4_name
@@ -1004,25 +1044,56 @@ actions:
   - variables:
       zones:
         - enabled: "{{ zone_1_enabled }}"
+          control: "{{ zone_1_control }}"
+          control_allowed: >-
+            {% if zone_1_control is string and zone_1_control | trim != '' %}
+              {{ is_state(zone_1_control, 'on') }}
+            {% else %}
+              true
+            {% endif %}
           valve: "{{ zone_1_valve }}"
           moisture: "{{ zone_1_moisture }}"
           name: "{{ zone_1_name }}"
         - enabled: "{{ zone_2_enabled }}"
+          control: "{{ zone_2_control }}"
+          control_allowed: >-
+            {% if zone_2_control is string and zone_2_control | trim != '' %}
+              {{ is_state(zone_2_control, 'on') }}
+            {% else %}
+              true
+            {% endif %}
           valve: "{{ zone_2_valve }}"
           moisture: "{{ zone_2_moisture }}"
           name: "{{ zone_2_name }}"
         - enabled: "{{ zone_3_enabled }}"
+          control: "{{ zone_3_control }}"
+          control_allowed: >-
+            {% if zone_3_control is string and zone_3_control | trim != '' %}
+              {{ is_state(zone_3_control, 'on') }}
+            {% else %}
+              true
+            {% endif %}
           valve: "{{ zone_3_valve }}"
           moisture: "{{ zone_3_moisture }}"
           name: "{{ zone_3_name }}"
         - enabled: "{{ zone_4_enabled }}"
+          control: "{{ zone_4_control }}"
+          control_allowed: >-
+            {% if zone_4_control is string and zone_4_control | trim != '' %}
+              {{ is_state(zone_4_control, 'on') }}
+            {% else %}
+              true
+            {% endif %}
           valve: "{{ zone_4_valve }}"
           moisture: "{{ zone_4_moisture }}"
           name: "{{ zone_4_name }}"
 
   - variables:
       active_zones: >
-        {{ zones | selectattr('enabled', 'eq', true) | list }}
+        {{ zones
+           | selectattr('enabled', 'in', [true, 'true', 'True'])
+           | selectattr('control_allowed', 'in', [true, 'true', 'True'])
+           | list }}
 
   - if:
       - condition: template
@@ -1110,7 +1181,9 @@ actions:
         - variables:
             zone_name: "{{ repeat.item.name }}"
             valve: "{{ repeat.item.valve }}"
+            zone_control: "{{ repeat.item.control }}"
             moisture_entity: "{{ repeat.item.moisture }}"
+            zone_cancelled: false
             has_moisture_sensor: "{{ repeat.item.moisture is string and repeat.item.moisture | trim != '' }}"
             moisture: "{{ states(repeat.item.moisture) | float(none) if repeat.item.moisture is string and repeat.item.moisture | trim != '' else none }}"
         - if:
@@ -1364,6 +1437,10 @@ actions:
             - condition: template
               value_template: "{{ final_duration | float(0) > 0 }}"
 
+            - condition: template
+              value_template: >-
+                {{ zone_control is not string or zone_control | trim == '' or is_state(zone_control, 'on') }}
+
             - if:
                 - condition: template
                   value_template: >-
@@ -1451,47 +1528,142 @@ actions:
 
                       Estimated water use: {{ (final_duration | float(0) * flow_rate | float(0)) | round(1) }} L.
 
+            - variables:
+                watered_minutes: 0
+                zone_cancelled: false
+
             - action: homeassistant.turn_on
               target:
                 entity_id: "{{ valve }}"
 
-            - if:
-                - condition: template
-                  value_template: >
-                    {{ cycle_duration | float(0) > 0 and
-                       cycle_duration | float(0) < final_duration | float(0) }}
-              then:
-                - repeat:
-                    while:
+            # Water in one-minute increments so the external zone control
+            # switch can stop the zone without waiting for the full duration.
+            - repeat:
+                while:
+                  - condition: template
+                    value_template: >-
+                      {{ watered_minutes | float(0) < final_duration | float(0) and
+                         not zone_cancelled and
+                         (zone_control is not string or zone_control | trim == '' or is_state(zone_control, 'on')) }}
+                sequence:
+                  - variables:
+                      cycle_minutes_remaining: >-
+                        {% if cycle_duration | float(0) > 0 %}
+                          {{ [cycle_duration | float(0) -
+                              ((watered_minutes | float(0)) % (cycle_duration | float(0))),
+                              final_duration | float(0) - watered_minutes | float(0)] | min }}
+                        {% else %}
+                          {{ final_duration | float(0) - watered_minutes | float(0) }}
+                        {% endif %}
+                  - repeat:
+                      while:
+                        - condition: template
+                          value_template: >-
+                            {{ cycle_minutes_remaining | float(0) > 0 and
+                               watered_minutes | float(0) < final_duration | float(0) and
+                               not zone_cancelled and
+                               (zone_control is not string or zone_control | trim == '' or is_state(zone_control, 'on')) }}
+                      sequence:
+                        - delay:
+                            minutes: >-
+                              {{ [1, cycle_minutes_remaining | float(1),
+                                  final_duration | float(0) - watered_minutes | float(0)] | min }}
+                        - variables:
+                            watered_minutes: >-
+                              {{ [watered_minutes | float(0) + 1,
+                                  final_duration | float(0)] | min }}
+                            cycle_minutes_remaining: >-
+                              {{ [cycle_minutes_remaining | float(0) - 1, 0] | max }}
+                        - if:
+                            - condition: template
+                              value_template: >-
+                                {{ zone_control is string and zone_control | trim != '' and not is_state(zone_control, 'on') }}
+                          then:
+                            - variables:
+                                zone_cancelled: true
+
+                  - if:
                       - condition: template
-                        value_template: "{{ repeat.index * cycle_duration < final_duration }}"
-                    sequence:
-                      - delay:
-                          minutes: >
-                            {{ [cycle_duration | float(0),
-                                final_duration | float(0) -
-                                ((repeat.index - 1) * cycle_duration | float(0))] | min }}
+                        value_template: "{{ not zone_cancelled }}"
+                    then:
                       - action: homeassistant.turn_off
                         target:
                           entity_id: "{{ valve }}"
                       - if:
                           - condition: template
-                            value_template: >
-                              {{ (repeat.index * cycle_duration) < final_duration and
-                                 soak_duration | float(0) > 0 }}
+                            value_template: >-
+                              {{ watered_minutes | float(0) < final_duration | float(0) and
+                                 soak_duration | float(0) > 0 and
+                                 (zone_control is not string or zone_control | trim == '' or is_state(zone_control, 'on')) }}
                         then:
-                          - delay:
-                              minutes: "{{ soak_duration | float(10) }}"
+                          # Soak in one-minute increments as well, allowing the
+                          # external control switch to cancel the zone.
+                          - variables:
+                              soak_minutes_remaining: "{{ soak_duration | float(0) }}"
+                          - repeat:
+                              while:
+                                - condition: template
+                                  value_template: >-
+                                    {{ soak_minutes_remaining | float(0) > 0 and
+                                       not zone_cancelled and
+                                       (zone_control is not string or zone_control | trim == '' or is_state(zone_control, 'on')) }}
+                              sequence:
+                                - delay:
+                                    minutes: 1
+                                - variables:
+                                    soak_minutes_remaining: >-
+                                      {{ [soak_minutes_remaining | float(0) - 1, 0] | max }}
+                                - if:
+                                    - condition: template
+                                      value_template: >-
+                                        {{ zone_control is string and zone_control | trim != '' and not is_state(zone_control, 'on') }}
+                                  then:
+                                    - variables:
+                                        zone_cancelled: true
+                          - if:
+                              - condition: template
+                                value_template: >-
+                                  {{ zone_control is string and zone_control | trim != '' and not is_state(zone_control, 'on') }}
+                            then:
+                              - variables:
+                                  zone_cancelled: true
+                      - if:
+                          - condition: template
+                            value_template: >-
+                              {{ not zone_cancelled and
+                                 watered_minutes | float(0) < final_duration | float(0) and
+                                 (zone_control is not string or zone_control | trim == '' or is_state(zone_control, 'on')) }}
+                        then:
                           - action: homeassistant.turn_on
                             target:
                               entity_id: "{{ valve }}"
-              else:
-                - delay:
-                    minutes: "{{ final_duration | float(0) }}"
 
             - action: homeassistant.turn_off
               target:
                 entity_id: "{{ valve }}"
+
+            - if:
+                - condition: template
+                  value_template: "{{ zone_cancelled }}"
+              then:
+                - if:
+                    - condition: template
+                      value_template: >-
+                        {{ notify_service is string and notify_service | trim != '' }}
+                  then:
+                    - action: >-
+                        {{ 'notify.' ~ notify_service if not notify_service.startswith('notify.') else notify_service }}
+                      data:
+                        title: Smart Irrigation - {{ zone_name }}
+                        message: "Zone stopped: automatic zone control was turned off."
+                - if:
+                    - condition: template
+                      value_template: "{{ create_persistent_notifications }}"
+                  then:
+                    - action: persistent_notification.create
+                      data:
+                        title: Smart Irrigation - {{ zone_name }}
+                        message: "Zone stopped: automatic zone control was turned off."
 
   - if:
       - condition: template
